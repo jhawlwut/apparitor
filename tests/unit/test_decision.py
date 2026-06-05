@@ -46,6 +46,8 @@ def test_escalate_never_downgrades() -> None:
         # short / missing entry blocks the whole message
         ([True], 2, Verdict.BLOCK),
         ([], 1, Verdict.BLOCK),
+        # a non-conformant PDP returning MORE decisions than expected is also blocked
+        ([True, True, True], 2, Verdict.BLOCK),
     ],
 )
 def test_aggregate(decisions: list[bool], expected_n: int, expected: Verdict) -> None:

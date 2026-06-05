@@ -20,7 +20,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 # --- shared config -----------------------------------------------------------------
 
@@ -103,7 +103,9 @@ class EvaluationResponse(BaseModel):
 
     model_config = _RESPONSE_CONFIG
 
-    decision: bool
+    # StrictBool: a non-bool ``decision`` (e.g. 1 / "true") is a malformed response, never
+    # a coerced truthy ALLOW. This is a security invariant — do not relax it.
+    decision: StrictBool
     context: dict[str, Any] | None = None
 
 

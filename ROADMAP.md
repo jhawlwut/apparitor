@@ -18,7 +18,7 @@ Status legend: ✅ done · 🔜 next · 📋 planned.
 **Acceptance:** `ruff`, `mypy --strict`, `pytest`, and `build`/`twine check` all pass;
 package imports without the LlamaFirewall stack; PDP-name availability confirmed.
 
-## 🔜 M1 — Core evaluation pipeline
+## ✅ M1 — Core evaluation pipeline
 
 - `AuthZENClient.evaluate` (single `POST /access/v1/evaluation`): timeouts, the
   request budget, bounded retries with backoff, httpx-exception mapping.

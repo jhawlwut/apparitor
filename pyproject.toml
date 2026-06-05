@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "authzen-llamafirewall-scanner"
-version = "0.0.1a0"
+dynamic = ["version"]
 description = "AuthZEN 1.0 authorization scanner plugin for Meta's LlamaFirewall — answers \"is this agent allowed to do this?\""
 readme = "README.md"
 requires-python = ">=3.10"
@@ -70,6 +70,9 @@ Issues = "https://github.com/jhawlwut/authzen-scanner/issues"
 Documentation = "https://github.com/jhawlwut/authzen-scanner/tree/main/docs"
 Changelog = "https://github.com/jhawlwut/authzen-scanner/blob/main/CHANGELOG.md"
 
+[tool.hatch.version]
+path = "src/authzen_llamafirewall/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/authzen_llamafirewall"]
 
@@ -95,9 +98,8 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 testpaths = ["tests"]
-# NOTE: the coverage gate (target: --cov-fail-under=90) is intentionally NOT
-# enforced in addopts yet — the behavioural suite is deferred to the next
-# session. It will be turned on once real tests land (see docs/requirements.md).
+# Coverage gate is enforced (90% line+branch). scanner.py is omitted from the default
+# run (it needs LlamaFirewall) and is covered by the `scanner` CI job — see [tool.coverage.run].
 addopts = "-m 'not integration' --strict-markers --cov=authzen_llamafirewall --cov-branch --cov-fail-under=90"
 markers = [
   "unit: fast, isolated, no network or docker",

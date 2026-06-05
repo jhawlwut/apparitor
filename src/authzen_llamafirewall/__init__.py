@@ -46,8 +46,10 @@ from .mapping import (
     DefaultToolCallMapper,
     MCPResourceMapper,
     ToolCallMapper,
+    current_request_context,
     current_subject,
     mcp_resource_id,
+    subject_scope,
 )
 from .models import (
     Action,
@@ -104,6 +106,8 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
     "DefaultToolCallMapper",
     "MCPResourceMapper",
     "current_subject",
+    "current_request_context",
+    "subject_scope",
     "mcp_resource_id",
     # errors
     "AuthZENError",

@@ -17,24 +17,56 @@ from __future__ import annotations
 
 import contextvars
 import json
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from .errors import AuthZENConfigError
 from .models import Action, EvaluationRequest, Resource, Subject
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from .adapters import NormalizedToolCall
     from .config import ScannerConfig
 
 #: Request-scoped subject. Hosts set this (per request / per agent run) before the scanner
-#: is invoked; the default mapper reads it here.
+#: is invoked; the default mapper reads it here. Prefer :func:`subject_scope` over calling
+#: ``.set()`` directly so the value can never leak across requests on a reused task/loop.
 current_subject: contextvars.ContextVar[Subject | None] = contextvars.ContextVar(
     "authzen_current_subject", default=None
 )
 
+#: Request-scoped enrichment context (``conversation_id`` / ``user_id`` / ``correlation_id``
+#: and, optionally, a trusted ``subject``). MUST contain only host-trusted, out-of-band data
+#: — never anything derived from model/tool output (that would be a confused-deputy).
+current_request_context: contextvars.ContextVar[Mapping[str, Any] | None] = contextvars.ContextVar(
+    "authzen_current_request_context", default=None
+)
+
 _REDACTED = "***redacted***"
+
+
+@contextmanager
+def subject_scope(subject: Subject) -> Iterator[None]:
+    """Bind :data:`current_subject` for the duration of the ``with`` block, then reset it.
+
+    Use this instead of ``current_subject.set(...)`` so the subject is always cleared and
+    can never leak to a later request that reuses the same task/event loop.
+    """
+    token = current_subject.set(subject)
+    try:
+        yield
+    finally:
+        current_subject.reset(token)
+
+
+def _json_safe(value: dict[str, Any]) -> dict[str, Any]:
+    """Return a JSON-serialisable copy of ``value`` (stringifying exotic leaf types).
+
+    Guarantees that downstream serialisation (the PDP request body and the cache key)
+    can never raise on a non-JSON argument value and crash the fail-closed path.
+    """
+    safe: dict[str, Any] = json.loads(json.dumps(value, default=str))
+    return safe
 
 
 def mcp_resource_id(server: str, tool: str) -> str:
@@ -88,10 +120,11 @@ class DefaultToolCallMapper:
             return {}
         if cfg.redact_arguments:
             return dict.fromkeys(tool_call.arguments, _REDACTED)
-        encoded = json.dumps(tool_call.arguments, sort_keys=True)
+        safe = _json_safe(tool_call.arguments)
+        encoded = json.dumps(safe, sort_keys=True)
         if len(encoded.encode("utf-8")) > cfg.max_argument_bytes:
             return {"_truncated": True}
-        return dict(tool_call.arguments)
+        return safe
 
     def _resource(self, tool_call: NormalizedToolCall) -> Resource:
         return Resource(

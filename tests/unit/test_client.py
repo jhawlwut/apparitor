@@ -148,13 +148,66 @@ async def test_default_headers_are_sent(make_config, noop_sleep, respx_mock) -> 
     await client.aclose()
 
 
+@pytest.mark.asyncio
+async def test_non_bool_decision_is_malformed(make_config, noop_sleep, respx_mock) -> None:
+    # A truthy non-bool (e.g. 1) must NOT coerce to an ALLOW.
+    respx_mock.post(_EVAL_URL).respond(json={"decision": 1})
+    client = await _client(make_config, noop_sleep)
+    with pytest.raises(MalformedPDPResponseError):
+        await client.evaluate(_request())
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_unfollowed_redirect_fails_closed(make_config, noop_sleep, respx_mock) -> None:
+    respx_mock.post(_EVAL_URL).respond(
+        status_code=302, headers={"location": "http://169.254.169.254"}
+    )
+    client = await _client(make_config, noop_sleep, max_retries=0)
+    with pytest.raises(PDPUnavailableError):
+        await client.evaluate(_request())
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_budget_stops_retries_early(make_config, respx_mock) -> None:
+    # A driven clock: each backoff "sleep" advances time past the budget, so retries stop
+    # before max_retries is reached.
+    now = [0.0]
+
+    async def advancing_sleep(seconds: float) -> None:
+        now[0] += max(seconds, 1.0)
+
+    route = respx_mock.post(_EVAL_URL).respond(status_code=503)
+    cfg = make_config(max_retries=10, request_budget_s=2.0, backoff_base_s=0.0)
+    client = AuthZENClient(cfg, sleep=advancing_sleep, clock=lambda: now[0])
+    # Budget exhaustion raises a timeout, well before max_retries (10) is reached.
+    with pytest.raises(PDPTimeoutError):
+        await client.evaluate(_request())
+    assert route.call_count < 5
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_byo_client_is_not_closed_by_aclose(make_config, noop_sleep) -> None:
+    byo = httpx.AsyncClient(base_url="http://pdp.test")
+    client = AuthZENClient(make_config(), http_client=byo, sleep=noop_sleep)
+    await client.aclose()
+    assert not byo.is_closed  # caller owns the client's lifecycle
+    await byo.aclose()
+
+
 def test_ssrf_guard_rejects_http_and_private_and_localhost() -> None:
-    with pytest.raises(AuthZENConfigError):
-        validate_pdp_url("http://pdp.internal", allow_insecure=False)  # not https
-    with pytest.raises(AuthZENConfigError):
-        validate_pdp_url("https://10.0.0.5", allow_insecure=False)  # private
-    with pytest.raises(AuthZENConfigError):
-        validate_pdp_url("https://localhost", allow_insecure=False)
+    for bad in (
+        "http://pdp.internal",  # not https
+        "https://10.0.0.5",  # private
+        "https://localhost",
+        "https://0.0.0.0",  # unspecified
+        "https://[::1]",  # IPv6 loopback
+        "https://[::ffff:169.254.169.254]",  # IPv4-mapped link-local (cloud metadata)
+    ):
+        with pytest.raises(AuthZENConfigError):
+            validate_pdp_url(bad, allow_insecure=False)
     # public https hostname is allowed; insecure flag bypasses the guard
     validate_pdp_url("https://pdp.example.com", allow_insecure=False)
     validate_pdp_url("http://127.0.0.1:8080", allow_insecure=True)

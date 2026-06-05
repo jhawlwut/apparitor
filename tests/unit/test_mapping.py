@@ -108,3 +108,21 @@ def test_mcp_resource_id_rejects_empty_parts() -> None:
         mcp_resource_id("", "read")
     with pytest.raises(AuthZENConfigError):
         mcp_resource_id("files", "  ")
+
+
+def test_subject_scope_sets_and_resets() -> None:
+    from authzen_llamafirewall.mapping import subject_scope
+
+    assert current_subject.get() is None
+    with subject_scope(Subject(type="user", id="alice")):
+        assert current_subject.get() == Subject(type="user", id="alice")
+    assert current_subject.get() is None  # always reset, even though no token juggling
+
+
+def test_non_json_arguments_are_made_safe(make_config) -> None:
+    # A non-JSON value (a set) must not crash serialisation; it is stringified.
+    cfg = make_config(redact_arguments=False)
+    req = DefaultToolCallMapper(cfg).map(_call(tags={"a", "b"}), {})
+    assert req is not None
+    args = req.resource.properties["arguments"]
+    assert isinstance(args["tags"], str)  # stringified, JSON-serialisable

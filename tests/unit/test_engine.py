@@ -210,3 +210,84 @@ async def test_malformed_tool_call_arguments_fail_closed(
 async def test_engine_aclose_is_idempotent(make_config, noop_sleep) -> None:
     engine = _engine(make_config(), noop_sleep)
     await engine.aclose()
+
+
+@pytest.mark.asyncio
+async def test_malformed_response_resolves_via_on_error(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    respx_mock.post(_EVAL_URL).respond(json={"context": {}})  # missing decision
+    deny = await _engine(make_config(max_retries=0), noop_sleep).evaluate_tool_calls(
+        [make_openai_call("read")]
+    )
+    assert deny.verdict is Verdict.BLOCK
+    assert deny.status is VerdictStatus.ERROR
+
+    respx_mock.post(_EVAL_URL).respond(json={"context": {}})
+    review = await _engine(
+        make_config(on_error=OnError.HUMAN_REVIEW, max_retries=0), noop_sleep
+    ).evaluate_tool_calls([make_openai_call("read")])
+    assert review.verdict is Verdict.HUMAN_REVIEW
+
+
+@pytest.mark.asyncio
+async def test_batch_review_predicate_escalates(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    # The HITL bypass regression: a 2nd tool call must not dodge human review.
+    respx_mock.post(_BATCH_URL).respond(
+        json={"evaluations": [{"decision": True}, {"decision": True, "context": {"step_up": True}}]}
+    )
+    engine = _engine(
+        make_config(), noop_sleep, review_predicate=lambda ctx: bool(ctx.get("step_up"))
+    )
+    result = await engine.evaluate_tool_calls(
+        [make_openai_call("read"), make_openai_call("wire_transfer")]
+    )
+    assert result.verdict is Verdict.HUMAN_REVIEW
+
+
+@pytest.mark.asyncio
+async def test_batch_short_array_blocks(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    # Two calls submitted, one decision returned → block the whole message.
+    respx_mock.post(_BATCH_URL).respond(json={"evaluations": [{"decision": True}]})
+    engine = _engine(make_config(), noop_sleep)
+    result = await engine.evaluate_tool_calls([make_openai_call("a"), make_openai_call("b")])
+    assert result.verdict is Verdict.BLOCK
+
+
+@pytest.mark.asyncio
+async def test_batch_pdp_error_resolves_on_error(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    respx_mock.post(_BATCH_URL).respond(status_code=503)
+    engine = _engine(make_config(max_retries=0), noop_sleep)
+    result = await engine.evaluate_tool_calls([make_openai_call("a"), make_openai_call("b")])
+    assert result.verdict is Verdict.BLOCK
+    assert result.status is VerdictStatus.ERROR
+
+
+@pytest.mark.asyncio
+async def test_predicate_with_no_context_does_not_escalate(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    respx_mock.post(_EVAL_URL).respond(json={"decision": True})  # no context
+    engine = _engine(make_config(), noop_sleep, review_predicate=lambda ctx: True)
+    result = await engine.evaluate_tool_calls([make_openai_call("read")])
+    assert result.verdict is Verdict.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_predicate_that_raises_fails_closed(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    def _boom(_ctx: dict) -> bool:
+        raise RuntimeError("predicate bug")
+
+    respx_mock.post(_EVAL_URL).respond(json={"decision": True, "context": {"x": 1}})
+    engine = _engine(make_config(), noop_sleep, review_predicate=_boom)
+    result = await engine.evaluate_tool_calls([make_openai_call("read")])
+    assert result.verdict is Verdict.BLOCK
+    assert result.status is VerdictStatus.ERROR

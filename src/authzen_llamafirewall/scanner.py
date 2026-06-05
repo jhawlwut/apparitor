@@ -94,8 +94,12 @@ class AuthZENScanner(Scanner):  # type: ignore[misc]  # LlamaFirewall ships no t
 
     async def scan(self, message: Message, past_trace: Trace | None = None) -> ScanResult:
         """Authorize the tool call(s) in ``message`` against the PDP."""
+        from .mapping import current_request_context
+
         tool_calls = _tool_calls(message)
-        verdict = await self._engine.evaluate_tool_calls(tool_calls)
+        verdict = await self._engine.evaluate_tool_calls(
+            tool_calls, request_context=current_request_context.get()
+        )
         return self._to_scan_result(verdict)
 
     def _to_scan_result(self, verdict: VerdictResult) -> ScanResult:
@@ -107,8 +111,18 @@ class AuthZENScanner(Scanner):  # type: ignore[misc]  # LlamaFirewall ships no t
         )
 
     async def aclose(self) -> None:
-        """Release the underlying PDP client (call on scanner teardown)."""
+        """Release the underlying PDP client (call on scanner teardown).
+
+        Only closes a client the scanner created; a bring-your-own ``http_client`` is left
+        for the caller to manage.
+        """
         await self._engine.aclose()
+
+    async def __aenter__(self) -> AuthZENScanner:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.aclose()
 
 
 def _tool_calls(message: Message) -> list[dict[str, Any]] | None:
