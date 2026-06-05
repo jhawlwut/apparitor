@@ -30,12 +30,55 @@ CI runs lint, types, the unit suite on Python 3.10–3.13, and a packaging check
 coverage gate (≥90% line+branch on the LlamaFirewall-free modules) turns on with the
 behavioural suite.
 
-## Branching & PRs
+## Branch naming
 
-- Develop on a feature branch; keep PRs focused.
-- Match the surrounding style; add tests for behavioural changes.
-- By contributing you agree your work is licensed under Apache-2.0 (DCO-style sign-off
-  welcome: `git commit -s`).
+Format: **`<type>/<short-kebab-summary>`**, optionally with an issue number:
+`<type>/<issue>-<summary>`. Lowercase, hyphen-separated, 3–5 words.
+
+```
+feat/authzen-client
+fix/cache-ttl-clamp
+docs/setup-guide
+feat/42-batch-evaluation
+```
+
+`<type>` matches the commit types below (`feat`, `fix`, `docs`, `refactor`, `test`,
+`chore`, `ci`, `perf`). Automated agent sessions may push to tool-managed branches like
+`claude/<slug>-<id>` — the trailing id is intentional collision-avoidance, not a naming
+choice; human-driven branches should use the convention above.
+
+## Commit messages — [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+
+```
+<type>(<optional scope>): <imperative summary>   # ≤72 chars, lowercase, no trailing period
+
+<body: explain *why*, not what — wrapped at 72 cols>
+
+<footers: e.g. "Closes #123", "BREAKING CHANGE: ...">
+```
+
+- **Types:** `feat` (new feature), `fix` (bug fix), `docs`, `refactor`, `perf`, `test`,
+  `build`, `ci`, `chore`, `revert`.
+- **Scope** (optional) names the area, e.g. `feat(client):`, `fix(cache):`.
+- **Breaking changes:** append `!` (`feat(config)!: ...`) and/or add a
+  `BREAKING CHANGE:` footer.
+- Imperative mood ("add", not "added"/"adds"). The subject says *what*; the body says
+  *why*.
+
+## Pull requests
+
+- One logical change per PR; keep them small and reviewable. Open as **draft** early.
+- PR **title** uses the Conventional Commits format (it usually becomes the squash-merge
+  subject).
+- PR **body** covers: context/why, what changed, how it was tested, and linked issues
+  (`Closes #N`).
+- CI must be green. Run the full check suite (see above) before pushing.
+- Add or update tests for behavioural changes; update docs in the same PR.
+
+## Licensing & sign-off
+
+By contributing you agree your work is licensed under Apache-2.0. DCO-style sign-off is
+welcome: `git commit -s`.
 
 ## Design
 
