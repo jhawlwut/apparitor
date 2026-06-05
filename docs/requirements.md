@@ -12,7 +12,8 @@ Provide a LlamaFirewall `Scanner` that authorizes an agent's tool calls against 
 AuthZEN 1.0 PDP and returns `ALLOW` / `BLOCK` / `HUMAN_IN_THE_LOOP_REQUIRED`.
 
 **In scope:** the scanner, the AuthZEN client + models, tool-call extraction, mapping,
-caching, configuration, and examples for OPA / Cerbos / a mock PDP.
+caching, configuration, and examples for OpenFGA / Cedar / a mock PDP (OPA, Cerbos and
+Amazon Verified Permissions also work and may be added).
 
 **Out of scope** (documented, deferred): control-plane decision-log emission, OPA
 bundles, NeMo Guardrails / Microsoft Agent Governance rails, natural-language policy

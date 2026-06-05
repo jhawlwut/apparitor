@@ -12,7 +12,7 @@ this document focuses on the runtime shape.
             └───────────────────────────────────────────────────────────│───────────┘
                                                                           │  POST /access/v1/evaluation(s)
                                                                           ▼
-                                                            AuthZEN PDP (OPA / Cerbos / OpenFGA / Topaz)
+                                                            AuthZEN PDP (OpenFGA / Cedar / OPA / Topaz)
 ```
 
 Content-safety scanners answer *"is this malicious?"* The AuthZEN scanner answers

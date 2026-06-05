@@ -17,7 +17,7 @@ All notable changes to this project are documented here. The format follows
 ### Not yet implemented
 - The scan pipeline, AuthZEN client transport, mapping policy and decision cache
   (`scan()`/client/cache currently raise `NotImplementedError`).
-- Example PDP deployments (OPA / Cerbos / mock) and the behavioural test suite.
+- Example PDP deployments (OpenFGA / Cedar / mock) and the behavioural test suite.
 
 ## [0.0.1a0]
 - Initial pre-alpha scaffold.

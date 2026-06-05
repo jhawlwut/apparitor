@@ -25,5 +25,5 @@ See [`docs/requirements.md`](docs/requirements.md) for the full threat model and
 
 ## Scope
 
-This project depends on third-party PDPs (OPA, Cerbos, …) and LlamaFirewall. Vulnerabilities
+This project depends on third-party PDPs (OpenFGA, Cedar, …) and LlamaFirewall. Vulnerabilities
 in those projects should be reported to their respective maintainers.

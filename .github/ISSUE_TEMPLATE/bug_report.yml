@@ -36,9 +36,11 @@ body:
       label: PDP backend
       options:
         - Mock / not applicable
+        - OpenFGA
+        - Cedar (local gateway)
+        - Amazon Verified Permissions (AVP)
         - OPA (kanywst/opa-authzen)
         - Cerbos
-        - OpenFGA
         - Topaz
         - Other AuthZEN PDP
     validations:

@@ -5,7 +5,7 @@
 Content-safety guardrails ask *"is this prompt malicious?"* They do **not** ask
 *"is this agent **allowed** to do this?"* This plugin fills that gap: it evaluates an
 agent's tool calls against any [AuthZEN 1.0](https://openid.net/specs/authorization-interop-spec-1_0.html)
-Policy Decision Point (PDP) — OPA, Cerbos, OpenFGA, Topaz — and maps the authorization
+Policy Decision Point (PDP) — OpenFGA, Cedar/AVP, OPA, Cerbos, Topaz — and maps the authorization
 decision back onto LlamaFirewall's `ALLOW` / `BLOCK` / `HUMAN_IN_THE_LOOP` model.
 
 Apache-2.0 licensed. Built entirely on public standards.
@@ -39,7 +39,7 @@ Agent: "Delete the production database"
    LlamaFirewall scanners (PromptGuard, AlignmentCheck, CodeShield, …)   → PASS
          │
          ▼
-   AuthZENAuthorizationScanner ──POST /access/v1/evaluation──▶  AuthZEN PDP (OPA / Cerbos / …)
+   AuthZENAuthorizationScanner ──POST /access/v1/evaluation──▶  AuthZEN PDP (OpenFGA / Cedar / …)
          │                                                         │
          │  ◀────────────────── { "decision": false } ────────────┘
          ▼
@@ -69,10 +69,11 @@ from authzen_llamafirewall.models import EvaluationRequest   # no LlamaFirewall 
 
 | PDP | AuthZEN support | Example |
 | --- | --- | --- |
-| **OPA** via [`kanywst/opa-authzen`](https://github.com/kanywst/opa-authzen) | full 1.0 | [`examples/opa/`](examples/opa/) |
-| **Cerbos** | native | [`examples/cerbos/`](examples/cerbos/) |
 | **Mock PDP** (testing/demo) | n/a | [`examples/mock_pdp/`](examples/mock_pdp/) |
-| Any AuthZEN 1.0 PDP (OpenFGA, Topaz, …) | by spec | [`docs/setup.md`](docs/setup.md) |
+| **OpenFGA** (Zanzibar / ReBAC) | native (experimental) | [`examples/openfga/`](examples/openfga/) |
+| **Cedar** (policy-as-code) | via AuthZEN gateway | [`examples/cedar/`](examples/cedar/) |
+| **Amazon Verified Permissions** (managed Cedar) | via [AWS AuthZEN interface](https://github.com/aws-samples/sample-authzen-interface-verified-permissions) | [`examples/avp/`](examples/avp/) |
+| Any AuthZEN 1.0 PDP (OPA, Cerbos, Topaz, …) | by spec | [`docs/setup.md`](docs/setup.md) |
 
 ## Documentation
 

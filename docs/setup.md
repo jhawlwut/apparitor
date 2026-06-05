@@ -43,25 +43,40 @@ scanner = AuthZENScanner(
 > address unless `allow_insecure_pdp=True` (local development only). TLS verification is on
 > by default. See [requirements.md §3.7](requirements.md).
 
-## OPA (via `kanywst/opa-authzen`)
-
-[`kanywst/opa-authzen`](https://github.com/kanywst/opa-authzen) is a spec-complete
-AuthZEN 1.0 front end for Open Policy Agent — use it as-is; do not rebuild it. The worked
-example (compose file + pinned image + sample Rego policy + smoke script) lives in
-[`examples/opa/`](../examples/opa/).
-
-## Cerbos
-
-Cerbos exposes AuthZEN natively. The worked example is in
-[`examples/cerbos/`](../examples/cerbos/).
-
 ## Mock PDP
 
 A tiny in-process AuthZEN PDP for tests and demos (configurable allow/deny rules, no
-external services) lives in [`examples/mock_pdp/`](../examples/mock_pdp/).
+external services) lives in [`examples/mock_pdp/`](../examples/mock_pdp/). Start here.
+
+## OpenFGA (Zanzibar / relationship-based)
+
+[OpenFGA](https://openfga.dev) exposes the AuthZEN Access Evaluation API **natively**
+(single and batch) as an [experimental feature](https://openfga.dev/docs/interacting/authzen)
+— enable it with the AuthZEN experimental flag and pin the server version, since the API
+surface may still change. Agent tool authorization maps cleanly onto OpenFGA's
+`type:id` + relation model: `resource{type:"tool", id:<name>}` and an
+`action`/relation like `tool_call.execute`. The worked example lives in
+[`examples/openfga/`](../examples/openfga/).
+
+## Cedar (policy-as-code)
+
+[Cedar](https://www.cedarpolicy.com/) is reachable over AuthZEN via a gateway shim that
+translates AuthZEN requests into Cedar `is_authorized` calls. The
+[`examples/cedar/`](../examples/cedar/) example runs Cedar locally behind such a gateway
+with sample policies.
+
+## Amazon Verified Permissions (managed Cedar)
+
+AVP is the managed AWS Cedar service. AWS publishes an
+[open-source AuthZEN interface for AVP](https://github.com/aws-samples/sample-authzen-interface-verified-permissions)
+(a Lambda translating AuthZEN ↔ AVP `IsAuthorized`). Because it needs an AWS account, it
+is a later **cloud** example ([`examples/avp/`](../examples/avp/)), not part of the
+local/CI set.
 
 ## Other PDPs
 
-OpenFGA and Topaz both expose AuthZEN endpoints; any AuthZEN 1.0 PDP works. Resource and
-subject **type vocabularies differ** between PDPs (OpenFGA's `type:id` object model vs
-Cerbos kinds vs OPA's free-form input) — adapt the `ToolCallMapper` to your PDP's schema.
+OPA (via [`kanywst/opa-authzen`](https://github.com/kanywst/opa-authzen)), Cerbos, and
+Topaz also expose AuthZEN endpoints; any AuthZEN 1.0 PDP works. Resource and subject
+**type vocabularies differ** between PDPs (OpenFGA's `type:id` relations vs Cedar
+entities/actions vs OPA's free-form input) — adapt the `ToolCallMapper` to your PDP's
+schema.

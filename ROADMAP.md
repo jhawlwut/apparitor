@@ -45,13 +45,19 @@ cases (no stale ALLOW past TTL, errors never cached, tokens never logged).
 
 ## 📋 M3 — PDP integrations & conformance
 
-- Worked examples: OPA via [`kanywst/opa-authzen`](https://github.com/kanywst/opa-authzen)
-  and Cerbos (digest-pinned images, vendored policy bundles, smoke scripts).
+- Lead worked examples: **OpenFGA** (native, experimental AuthZEN; relationship-based)
+  and **Cedar** (policy-as-code, via a local AuthZEN gateway) — digest-pinned images,
+  vendored models/policies, smoke scripts. Together they exercise both ReBAC and ABAC
+  over the same AuthZEN API.
 - Integration tests via testcontainers (Docker-gated; skip when absent).
 - Conformance against the vendored OpenID AuthZEN interop decisions dataset.
 
 **Acceptance:** the demo scenarios (deny / out-of-scope / allow / PDP-unreachable /
-batch) run end-to-end against real OPA and Cerbos.
+batch) run end-to-end against real OpenFGA and Cedar.
+
+A later, cloud-only example covers **Amazon Verified Permissions** (managed Cedar) via
+AWS's AuthZEN interface. OPA (`kanywst/opa-authzen`), Cerbos and Topaz also work and may
+be added as additional examples.
 
 ## 📋 M4 — Hardening & first release
 
