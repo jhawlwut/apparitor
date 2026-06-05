@@ -119,12 +119,13 @@ class DefaultToolCallMapper:
         if not cfg.forward_arguments:
             return {}
         if cfg.redact_arguments:
-            return dict.fromkeys(tool_call.arguments, _REDACTED)
-        safe = _json_safe(tool_call.arguments)
-        encoded = json.dumps(safe, sort_keys=True)
-        if len(encoded.encode("utf-8")) > cfg.max_argument_bytes:
+            args: dict[str, Any] = dict.fromkeys(tool_call.arguments, _REDACTED)
+        else:
+            args = _json_safe(tool_call.arguments)
+        # Size cap applies to both paths: even redacted keys are caller-influenced.
+        if len(json.dumps(args, sort_keys=True).encode("utf-8")) > cfg.max_argument_bytes:
             return {"_truncated": True}
-        return safe
+        return args
 
     def _resource(self, tool_call: NormalizedToolCall) -> Resource:
         return Resource(

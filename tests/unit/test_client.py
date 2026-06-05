@@ -120,6 +120,27 @@ async def test_connect_error_maps_to_unavailable(make_config, noop_sleep, respx_
 
 
 @pytest.mark.asyncio
+async def test_transport_error_retries_then_recovers(make_config, noop_sleep, respx_mock) -> None:
+    # A transient transport fault is retried and the next attempt succeeds.
+    route = respx_mock.post(_EVAL_URL)
+    route.side_effect = [httpx.ConnectError("blip"), httpx.Response(200, json={"decision": True})]
+    client = await _client(make_config, noop_sleep, max_retries=2)
+    assert (await client.evaluate(_request())).decision is True
+    assert route.call_count == 2
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_protocol_error_maps_to_unavailable(make_config, noop_sleep, respx_mock) -> None:
+    # A non-timeout transport fault (e.g. protocol error) routes to a service error.
+    respx_mock.post(_EVAL_URL).mock(side_effect=httpx.RemoteProtocolError("boom"))
+    client = await _client(make_config, noop_sleep, max_retries=0)
+    with pytest.raises(PDPUnavailableError):
+        await client.evaluate(_request())
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_missing_decision_is_malformed(make_config, noop_sleep, respx_mock) -> None:
     respx_mock.post(_EVAL_URL).respond(json={"context": {}})  # no decision
     client = await _client(make_config, noop_sleep)
