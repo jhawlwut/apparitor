@@ -43,8 +43,15 @@ class ScannerConfig(BaseModel):
 
     # --- AuthZEN tuple defaults (mappers may override per call) ---
     subject_type: str = "agent"
+    # Static fallback subject id, used when no request-scoped subject is set. If neither
+    # is available the mapper fails closed rather than authorizing an unknown principal.
+    agent_id: str | None = None
     action_name: str = "tool_call.execute"
     resource_type: str = "tool"
+
+    # Static headers sent on every PDP request. Prefer a bring-your-own httpx client for
+    # secrets; anything here is also redacted from logs.
+    default_headers: dict[str, str] = Field(default_factory=dict)
 
     # --- failure handling ---
     on_error: OnError = OnError.DENY

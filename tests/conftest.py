@@ -75,3 +75,47 @@ def authzen_interop_cases() -> list[dict[str, Any]]:
     if not path.exists():
         pytest.skip("interop decisions fixture not yet vendored")
     return json.loads(path.read_text())
+
+
+@pytest.fixture
+def make_config():
+    """Factory for a test ScannerConfig (mockable http PDP, no real backoff sleeps)."""
+    from authzen_llamafirewall.config import ScannerConfig
+
+    def _make(**overrides: Any) -> Any:
+        params: dict[str, Any] = {
+            "pdp_url": "http://pdp.test",
+            "allow_insecure_pdp": True,
+            "agent_id": "bot-123",
+            "max_retries": 2,
+            "backoff_base_s": 0.0,
+            "backoff_max_s": 0.0,
+        }
+        params.update(overrides)
+        return ScannerConfig(**params)
+
+    return _make
+
+
+async def _noop_sleep(_seconds: float) -> None:
+    """A non-sleeping replacement for asyncio.sleep in retry tests."""
+    return None
+
+
+@pytest.fixture
+def noop_sleep():
+    return _noop_sleep
+
+
+@pytest.fixture
+def make_openai_call():
+    """Factory for an OpenAI-shaped tool_call dict."""
+
+    def _make(name: str, **args: Any) -> dict[str, Any]:
+        return {
+            "id": f"call_{name}",
+            "type": "function",
+            "function": {"name": name, "arguments": json.dumps(args)},
+        }
+
+    return _make

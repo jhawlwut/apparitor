@@ -98,7 +98,7 @@ testpaths = ["tests"]
 # NOTE: the coverage gate (target: --cov-fail-under=90) is intentionally NOT
 # enforced in addopts yet — the behavioural suite is deferred to the next
 # session. It will be turned on once real tests land (see docs/requirements.md).
-addopts = "-m 'not integration' --strict-markers"
+addopts = "-m 'not integration' --strict-markers --cov=authzen_llamafirewall --cov-branch --cov-fail-under=90"
 markers = [
   "unit: fast, isolated, no network or docker",
   "integration: requires external services; excluded from the default run",
@@ -110,6 +110,9 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["authzen_llamafirewall"]
+# scanner.py is the only LlamaFirewall-dependent module; it is covered by the separate
+# `scanner` CI job that installs the [llamafirewall] extra, not the default unit run.
+omit = ["*/scanner.py"]
 
 [tool.coverage.report]
 exclude_lines = [

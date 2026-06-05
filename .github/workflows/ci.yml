@@ -74,6 +74,22 @@ jobs:
       - name: Twine check
         run: twine check dist/*
 
+  # The scanner's only hard dependency is LlamaFirewall (a heavy ML stack), so its
+  # boundary test runs in a dedicated job that installs the [llamafirewall] extra. Kept
+  # off the default push/PR path to keep the merge gate fast; run on demand.
+  scanner:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev,llamafirewall]"
+      - name: Pytest (scanner boundary, with LlamaFirewall)
+        run: pytest tests/unit/test_scanner.py -p no:cacheprovider --no-cov
+
   # Integration tests need real PDPs via Docker. Kept off the default path; auto-skips
   # via conftest when no daemon is present, so it never blocks the merge gate.
   integration:

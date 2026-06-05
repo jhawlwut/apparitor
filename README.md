@@ -10,10 +10,11 @@ decision back onto LlamaFirewall's `ALLOW` / `BLOCK` / `HUMAN_IN_THE_LOOP` model
 
 Apache-2.0 licensed. Built entirely on public standards.
 
-> **Status: `0.0.1a0` — pre-alpha scaffold.** This repository currently contains the
-> architecture, the technical requirements, and the typed project skeleton. The scanner
-> logic is **not yet implemented** (`scan()` raises `NotImplementedError`). Do not use in
-> production. See [`docs/requirements.md`](docs/requirements.md) for the design.
+> **Status: `0.0.1a0` — pre-alpha.** The scan pipeline works end-to-end against any
+> AuthZEN PDP (see [`CHANGELOG`](CHANGELOG.md)), with 98% test coverage on the
+> LlamaFirewall-free core. Still pre-alpha: real OpenFGA/Cedar example wiring and
+> conformance tests are pending, and APIs may change. See
+> [`docs/requirements.md`](docs/requirements.md) for the design and [`ROADMAP`](ROADMAP.md).
 
 ## The gap
 
@@ -50,13 +51,24 @@ Agent: "Delete the production database"
 
 ```python
 from llamafirewall import LlamaFirewall, Role
-from authzen_llamafirewall import AuthZENScanner
+from authzen_llamafirewall import AuthZENScanner, ScannerConfig
 
 # Point at any AuthZEN-compliant PDP. Secure defaults: fail-closed, TLS-verified.
-scanner = AuthZENScanner(pdp_url="https://pdp.internal")
+# A subject must be resolvable — set config.agent_id, or current_subject per request.
+scanner = AuthZENScanner(config=ScannerConfig(pdp_url="https://pdp.internal", agent_id="travel-bot"))
 
 firewall = LlamaFirewall(scanners={Role.ASSISTANT: [scanner]})
 result = await firewall.scan_async(assistant_message)   # ALLOW / BLOCK / HUMAN_IN_THE_LOOP
+```
+
+Per request, resolve the real end user the agent acts for (recommended over a static
+`agent_id`):
+
+```python
+from authzen_llamafirewall import Subject
+from authzen_llamafirewall.mapping import current_subject
+
+current_subject.set(Subject(type="user", id="alice@acme.com"))
 ```
 
 The AuthZEN client and models are **LlamaFirewall-free** and usable on their own:

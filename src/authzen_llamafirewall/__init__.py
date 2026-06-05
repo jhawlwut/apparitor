@@ -30,6 +30,8 @@ from .adapters import (
     detect_adapter,
 )
 from .config import OnError, ScannerConfig
+from .decision import Verdict, VerdictResult, VerdictStatus
+from .engine import AuthorizationEngine, ReviewPredicate
 from .errors import (
     AuthZENClientError,
     AuthZENConfigError,
@@ -73,6 +75,12 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
     # config
     "ScannerConfig",
     "OnError",
+    # engine / decision (LlamaFirewall-free orchestration)
+    "AuthorizationEngine",
+    "ReviewPredicate",
+    "Verdict",
+    "VerdictResult",
+    "VerdictStatus",
     # models
     "Subject",
     "Action",
