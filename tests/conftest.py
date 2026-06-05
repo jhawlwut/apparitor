@@ -1,14 +1,10 @@
 """Shared pytest fixtures and guards.
 
-Fixtures and markers used across the suite:
-
 * ``no_real_network`` — autouse for ``unit``-marked tests: blocks outbound TCP so a
   unit test can never accidentally hit a real PDP.
 * ``docker_available`` — session probe; ``docker``-marked tests *skip* (never fail)
   when no daemon is reachable, keeping the default/unit run green without Docker.
-* ``frozen_clock`` — deterministic time for cache TTL tests (no ``sleep``).
-* ``authzen_interop_cases`` — the vendored OpenID AuthZEN interop decisions, used as a
-  conformance oracle and for golden request-body tests.
+* ``make_config`` / ``make_openai_call`` / ``noop_sleep`` — factories used by the suite.
 """
 
 from __future__ import annotations
@@ -19,13 +15,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-FIXTURES = Path(__file__).parent / "fixtures"
-
-
-@pytest.fixture
-def pdp_base_url() -> str:
-    return "https://pdp.test"
 
 
 @pytest.fixture(autouse=True)
@@ -58,22 +47,6 @@ def docker_available() -> bool:
 def _skip_docker_without_daemon(request: pytest.FixtureRequest, docker_available: bool) -> None:
     if request.node.get_closest_marker("docker") and not docker_available:
         pytest.skip("Docker daemon not available")
-
-
-@pytest.fixture
-def frozen_clock():
-    freezegun = pytest.importorskip("freezegun")
-    with freezegun.freeze_time("2026-06-05T00:00:00Z") as frozen:
-        yield frozen
-
-
-@pytest.fixture
-def authzen_interop_cases() -> list[dict[str, Any]]:
-    """Load vendored AuthZEN interop request/expected-decision pairs."""
-    path = FIXTURES / "authzen_interop" / "decisions.json"
-    if not path.exists():
-        pytest.skip("interop decisions fixture not yet vendored")
-    return json.loads(path.read_text())
 
 
 @pytest.fixture

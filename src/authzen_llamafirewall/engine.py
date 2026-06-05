@@ -144,7 +144,9 @@ class AuthorizationEngine:
                 )
                 for r in requests
             ],
-            options=EvaluationsOptions(evaluation_semantic=self._config.evaluation_semantic),
+            # Our model authorizes EVERY tool call, so we always need every decision:
+            # execute_all. The short-circuit semantics don't fit "all calls must pass".
+            options=EvaluationsOptions(),
         )
         response = await self._client.evaluate_batch(batch)
         decisions = [item.decision for item in response.evaluations]

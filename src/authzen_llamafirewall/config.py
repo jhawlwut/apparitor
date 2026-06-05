@@ -15,8 +15,6 @@ from enum import Enum
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 
-from .models import EvaluationSemantic
-
 
 class OnError(str, Enum):
     """How to resolve a verdict when the PDP cannot return a usable decision.
@@ -55,7 +53,6 @@ class ScannerConfig(BaseModel):
 
     # --- failure handling ---
     on_error: OnError = OnError.DENY
-    evaluation_semantic: EvaluationSemantic = EvaluationSemantic.EXECUTE_ALL
 
     # --- latency budget / transport ---
     # Total wall-clock budget for a single scan; retries happen *within* it.

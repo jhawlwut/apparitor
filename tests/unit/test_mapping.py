@@ -79,6 +79,13 @@ def test_arguments_truncated_when_oversized(make_config) -> None:
     assert req.resource.properties["arguments"] == {"_truncated": True}
 
 
+def test_redacted_arguments_are_also_size_capped(make_config) -> None:
+    cfg = make_config(redact_arguments=True, max_argument_bytes=4)
+    req = DefaultToolCallMapper(cfg).map(_call(aaa=1, bbb=2, ccc=3), {})
+    assert req is not None
+    assert req.resource.properties["arguments"] == {"_truncated": True}
+
+
 def test_arguments_dropped_when_forwarding_disabled(make_config) -> None:
     cfg = make_config(forward_arguments=False)
     req = DefaultToolCallMapper(cfg).map(_call(path="/x"), {})

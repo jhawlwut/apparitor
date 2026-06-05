@@ -137,10 +137,11 @@ class AuthZENClient:
         cfg = self._config
         deadline = self._clock() + cfg.request_budget_s
         attempt = 0
+        last_exc: Exception | None = None
         while True:
             remaining = deadline - self._clock()
             if remaining <= 0:
-                raise PDPTimeoutError("PDP request budget exhausted")
+                raise PDPTimeoutError("PDP request budget exhausted") from last_exc
             # Cap the per-attempt timeout to the remaining budget so a single slow call
             # can never run past it (the budget bounds total wall-clock, not just retries).
             timeout = httpx.Timeout(
@@ -151,12 +152,16 @@ class AuthZENClient:
             )
             try:
                 response = await self._http.post(path, json=payload, timeout=timeout)
-            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
-                if not self._should_retry(attempt, deadline):
-                    raise PDPUnavailableError(f"PDP unreachable: {exc}") from exc
             except httpx.TimeoutException as exc:
+                last_exc = exc
                 if not self._should_retry(attempt, deadline):
                     raise PDPTimeoutError(f"PDP timed out: {exc}") from exc
+            except httpx.TransportError as exc:
+                # Base of connection/protocol/read/write transport faults. Mapped to a
+                # service error so it routes through on_error (not the generic catch-all).
+                last_exc = exc
+                if not self._should_retry(attempt, deadline):
+                    raise PDPUnavailableError(f"PDP unreachable: {exc}") from exc
             else:
                 if response.status_code in _RETRY_STATUS and self._should_retry(attempt, deadline):
                     await self._backoff(attempt)
