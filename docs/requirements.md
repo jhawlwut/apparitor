@@ -1,8 +1,7 @@
 # Technical Requirements & Design Decisions
 
 This document specifies the AuthZEN authorization scanner for LlamaFirewall. It is the
-authoritative design reference; the code scaffold implements these shapes, and the
-deferred implementation must satisfy these requirements. It was hardened by a
+authoritative design reference that the implementation satisfies. It was hardened by a
 six-discipline principal review (AI/agent, solution architecture, software, security,
 DevOps, QA).
 
@@ -179,7 +178,7 @@ See [`config.py`](../src/authzen_llamafirewall/config.py). Secure defaults: `on_
 `verify_tls=True`, `allow_insecure_pdp=False`, `cache_enabled=False`,
 `evaluation_semantic=execute_all`, `request_budget_s=2.0`, `max_retries=2`.
 
-## 6. Acceptance criteria (for the deferred implementation)
+## 6. Acceptance criteria
 
 - A denied tool call → `BLOCK`; an authorized one → `ALLOW`; PDP unreachable →
   `BLOCK` or `HUMAN_IN_THE_LOOP` per `on_error`, with `status=ERROR`.

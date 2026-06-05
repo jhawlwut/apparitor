@@ -1,7 +1,6 @@
 """Shared pytest fixtures and guards.
 
-The behavioural suite is deferred, but the scaffold pins the fixtures and markers the
-suite will rely on so it has nowhere to drift:
+Fixtures and markers used across the suite:
 
 * ``no_real_network`` — autouse for ``unit``-marked tests: blocks outbound TCP so a
   unit test can never accidentally hit a real PDP.

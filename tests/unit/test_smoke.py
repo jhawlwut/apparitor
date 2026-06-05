@@ -1,11 +1,7 @@
-"""Scaffold smoke tests.
-
-These are intentionally narrow: they prove the package imports correctly without
-LlamaFirewall, that the LlamaFirewall-free modules are usable standalone, that the
-AuthZEN models round-trip the spec's example JSON, and that the provider-aware tool
-adapters normalise the three major shapes. The behavioural suite (mapping policy,
-client transport, caching, decision/error tables) is deferred.
-"""
+"""Smoke tests: package imports, LlamaFirewall-free standalone use, and the
+LlamaFirewall import guard. Behavioural coverage lives in the dedicated test modules
+(``test_engine``, ``test_client``, ``test_mapping``, ``test_decision``, ``test_cache``,
+``test_security``, ``test_scanner``)."""
 
 from __future__ import annotations
 

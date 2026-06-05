@@ -16,7 +16,15 @@ from typing import TYPE_CHECKING, Any
 from .adapters import NormalizedToolCall, detect_adapter
 from .cache import DecisionCache, decision_cache_key
 from .client import AuthZENClient
-from .decision import Verdict, VerdictResult, VerdictStatus, aggregate, map_single, resolve_error
+from .decision import (
+    Verdict,
+    VerdictResult,
+    VerdictStatus,
+    aggregate,
+    escalate,
+    map_single,
+    resolve_error,
+)
 from .errors import AuthZENClientError, AuthZENConfigError, AuthZENServiceError
 from .mapping import DefaultToolCallMapper
 from .models import BatchEvaluationRequest, EvaluationItem, EvaluationsOptions
@@ -88,6 +96,12 @@ class AuthorizationEngine:
             result = resolve_error(self._config.on_error, f"PDP unavailable: {exc}")
             logger.warning("authzen: PDP error, resolved as %s", result.verdict.value)
             return result
+        except Exception:
+            # Defense in depth: any unexpected internal error fails closed, never ALLOW.
+            logger.exception("authzen: unexpected internal error during evaluation")
+            return VerdictResult(
+                Verdict.BLOCK, f"{_DENY_REASON} (internal error)", VerdictStatus.ERROR
+            )
 
         self._log(verdict, requests)
         return verdict
@@ -135,6 +149,10 @@ class AuthorizationEngine:
         response = await self._client.evaluate_batch(batch)
         decisions = [item.decision for item in response.evaluations]
         verdict = aggregate(decisions, expected=len(requests))
+        # Apply the review predicate per item and escalate the aggregate (escalation can
+        # never downgrade a BLOCK), so HUMAN_REVIEW is reachable on multi-call messages too.
+        if any(self._wants_review(item.context) for item in response.evaluations):
+            verdict = escalate(verdict, Verdict.HUMAN_REVIEW)
         return VerdictResult(verdict, _reason_for(verdict))
 
     def _wants_review(self, context: dict[str, Any] | None) -> bool:

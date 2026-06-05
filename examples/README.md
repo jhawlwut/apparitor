@@ -1,8 +1,8 @@
 # Examples
 
-Worked examples wiring the scanner to real PDPs. **These are placeholders** — the
-implementations land alongside the scanner logic (see the tracking issue and
-[`docs/requirements.md`](../docs/requirements.md)).
+Worked examples wiring the scanner to PDPs. The **mock PDP is implemented and tested**;
+the real-PDP examples (OpenFGA, Cedar, AVP) and scenarios are still placeholders (see
+[`ROADMAP.md`](../ROADMAP.md) M3).
 
 | Directory | What it will show |
 | --- | --- |

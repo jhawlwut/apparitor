@@ -94,10 +94,13 @@ stamps `status=ERROR`.
 
 ## Concurrency model (to pin before implementation)
 
-- `scan()` is async and single-loop; the scanner holds one pooled `httpx.AsyncClient`.
-- The decision cache is async-single-loop safe; the cache-miss → await-PDP → store window
-  is a thundering-herd risk, mitigated by an optional per-key in-flight future map.
-- A synchronous client variant (if shipped) uses `httpx.Client` and a `threading.Lock`ed
+- `scan()` is async and single-loop; the scanner holds one pooled `httpx.AsyncClient`,
+  closed via `aclose()` / `async with`.
+- The decision cache is for single-loop async use. It does **not** currently coalesce
+  concurrent in-flight misses for the same key (no thundering-herd protection) — two
+  simultaneous identical scans can both hit the PDP. This is an accepted v0 limitation; a
+  per-key in-flight future map is a future enhancement.
+- A synchronous client variant (if added) would use `httpx.Client` and a `threading.Lock`ed
   cache — never an `asyncio.Lock` shared across threads, never `asyncio.run`.
 
 ## Performance

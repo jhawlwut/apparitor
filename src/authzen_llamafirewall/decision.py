@@ -75,10 +75,11 @@ def map_single(base_decision: bool, *, wants_review: bool = False) -> Verdict:
 def aggregate(decisions: list[bool], *, expected: int) -> Verdict:
     """Aggregate a batch: ALLOW iff every expected entry is allowed, else BLOCK.
 
-    A short or missing entry (``len(decisions) < expected``, or any ``False``) blocks the
-    whole message — a benign call smuggled beside a denied one must not pass.
+    Any count mismatch (``len(decisions) != expected``) or any ``False`` blocks the whole
+    message — a benign call smuggled beside a denied one, or a non-conformant PDP returning
+    a short/long array, must not pass.
     """
-    if len(decisions) < expected or not all(decisions):
+    if len(decisions) != expected or not all(decisions):
         return Verdict.BLOCK
     return Verdict.ALLOW
 

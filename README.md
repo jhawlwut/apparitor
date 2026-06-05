@@ -1,5 +1,9 @@
 # authzen-llamafirewall-scanner
 
+[![CI](https://github.com/jhawlwut/authzen-scanner/actions/workflows/ci.yml/badge.svg)](https://github.com/jhawlwut/authzen-scanner/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+
 **An AuthZEN authorization scanner for [Meta's LlamaFirewall](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall).**
 
 Content-safety guardrails ask *"is this prompt malicious?"* They do **not** ask
@@ -62,13 +66,14 @@ result = await firewall.scan_async(assistant_message)   # ALLOW / BLOCK / HUMAN_
 ```
 
 Per request, resolve the real end user the agent acts for (recommended over a static
-`agent_id`):
+`agent_id`). Use `subject_scope` so the identity is always reset and can never leak to a
+later request that reuses the same task/event loop:
 
 ```python
-from authzen_llamafirewall import Subject
-from authzen_llamafirewall.mapping import current_subject
+from authzen_llamafirewall import Subject, subject_scope
 
-current_subject.set(Subject(type="user", id="alice@acme.com"))
+with subject_scope(Subject(type="user", id="alice@acme.com")):
+    result = await firewall.scan_async(assistant_message)
 ```
 
 The AuthZEN client and models are **LlamaFirewall-free** and usable on their own:

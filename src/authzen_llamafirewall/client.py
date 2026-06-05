@@ -70,8 +70,18 @@ def validate_pdp_url(url: str, *, allow_insecure: bool) -> None:
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
-        return  # a hostname — cannot classify without DNS; permitted
-    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+        return  # a hostname — cannot classify without DNS; permitted (pair with egress policy)
+    # IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1) is unwrapped so the checks below catch it.
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    if (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_unspecified
+        or ip.is_multicast
+    ):
         raise AuthZENConfigError(f"pdp_url host {host} is private/link-local; refusing (SSRF)")
 
 
@@ -84,12 +94,14 @@ class AuthZENClient:
         *,
         http_client: httpx.AsyncClient | None = None,
         sleep: Callable[[float], Awaitable[None]] | None = None,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         self._config = config
         validate_pdp_url(str(config.pdp_url), allow_insecure=config.allow_insecure_pdp)
         self._owns_http = http_client is None
         self._http = http_client or self._build_client()
         self._sleep = sleep or asyncio.sleep
+        self._clock = clock or (lambda: asyncio.get_running_loop().time())
 
     def _build_client(self) -> httpx.AsyncClient:
         cfg = self._config
@@ -104,6 +116,9 @@ class AuthZENClient:
             timeout=timeout,
             verify=cfg.verify_tls,
             headers=dict(cfg.default_headers),
+            # Never follow redirects: a PDP 3xx to an internal host would defeat the SSRF
+            # guard, which only validates the configured pdp_url.
+            follow_redirects=False,
         )
 
     async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
@@ -120,11 +135,22 @@ class AuthZENClient:
 
     async def _post(self, path: str, payload: dict[str, Any]) -> object:
         cfg = self._config
-        deadline = asyncio.get_running_loop().time() + cfg.request_budget_s
+        deadline = self._clock() + cfg.request_budget_s
         attempt = 0
         while True:
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                raise PDPTimeoutError("PDP request budget exhausted")
+            # Cap the per-attempt timeout to the remaining budget so a single slow call
+            # can never run past it (the budget bounds total wall-clock, not just retries).
+            timeout = httpx.Timeout(
+                connect=min(cfg.connect_timeout_s, remaining),
+                read=min(cfg.read_timeout_s, remaining),
+                write=min(cfg.read_timeout_s, remaining),
+                pool=cfg.connect_timeout_s,
+            )
             try:
-                response = await self._http.post(path, json=payload)
+                response = await self._http.post(path, json=payload, timeout=timeout)
             except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
                 if not self._should_retry(attempt, deadline):
                     raise PDPUnavailableError(f"PDP unreachable: {exc}") from exc
@@ -141,7 +167,7 @@ class AuthZENClient:
             attempt += 1
 
     def _should_retry(self, attempt: int, deadline: float) -> bool:
-        return attempt < self._config.max_retries and asyncio.get_running_loop().time() < deadline
+        return attempt < self._config.max_retries and self._clock() < deadline
 
     async def _backoff(self, attempt: int) -> None:
         cfg = self._config
@@ -168,6 +194,10 @@ def _handle_status(response: httpx.Response) -> object:
             return response.json()
         except ValueError as exc:
             raise MalformedPDPResponseError(f"PDP returned non-JSON body: {exc}") from exc
+    if 300 <= code < 400:
+        # Redirects are disabled; an unfollowed 3xx is treated as unavailable (fail closed),
+        # never as a decision.
+        raise PDPUnavailableError(f"PDP returned an unexpected redirect (HTTP {code})")
     if 400 <= code < 500:
         raise AuthZENClientError(f"PDP rejected the request (HTTP {code})", status_code=code)
     raise PDPUnavailableError(f"PDP returned HTTP {code}")
