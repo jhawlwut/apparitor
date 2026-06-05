@@ -1,0 +1,118 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "authzen-llamafirewall-scanner"
+version = "0.0.1a0"
+description = "AuthZEN 1.0 authorization scanner plugin for Meta's LlamaFirewall — answers \"is this agent allowed to do this?\""
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Jonny Hawley" }]
+keywords = [
+  "authzen",
+  "llamafirewall",
+  "authorization",
+  "ai-agents",
+  "agent-security",
+  "pdp",
+  "opa",
+  "cerbos",
+  "mcp",
+]
+# NOTE: per PEP 639 the license is declared via the SPDX `license` field above,
+# so no "License ::" trove classifier is included here (they are mutually redundant).
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+  "Typing :: Typed",
+]
+dependencies = [
+  # Core runtime is intentionally LlamaFirewall-free so the AuthZEN client and
+  # models are usable/testable standalone. LlamaFirewall is an optional extra
+  # (it pulls a heavy ML stack); only `authzen_llamafirewall.scanner` needs it.
+  "httpx>=0.27,<0.29",
+  "pydantic>=2.5,<3",
+]
+
+[project.optional-dependencies]
+# The scanner plugin itself. Importing `authzen_llamafirewall.scanner` without
+# this installed raises a clear MissingDependencyError.
+llamafirewall = ["llamafirewall>=0.0.1"]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.23",
+  "pytest-cov>=5",
+  "respx>=0.21",
+  "hypothesis>=6.100",
+  "freezegun>=1.5",
+  "ruff>=0.5",
+  "mypy>=1.10",
+  "build>=1.2",
+  "twine>=5",
+]
+
+[project.urls]
+Homepage = "https://github.com/jhawlwut/authzen-scanner"
+Repository = "https://github.com/jhawlwut/authzen-scanner"
+Issues = "https://github.com/jhawlwut/authzen-scanner/issues"
+Documentation = "https://github.com/jhawlwut/authzen-scanner/tree/main/docs"
+Changelog = "https://github.com/jhawlwut/authzen-scanner/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/authzen_llamafirewall"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src"]
+plugins = ["pydantic.mypy"]
+
+# LlamaFirewall ships no type stubs and may be absent in the lint environment.
+[[tool.mypy.overrides]]
+module = ["llamafirewall.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+testpaths = ["tests"]
+# NOTE: the coverage gate (target: --cov-fail-under=90) is intentionally NOT
+# enforced in addopts yet — the behavioural suite is deferred to the next
+# session. It will be turned on once real tests land (see docs/requirements.md).
+addopts = "-m 'not integration' --strict-markers"
+markers = [
+  "unit: fast, isolated, no network or docker",
+  "integration: requires external services; excluded from the default run",
+  "docker: requires a running Docker daemon (skipped when unavailable)",
+  "conformance: AuthZEN interop dataset conformance checks",
+  "slow: long-running tests",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["authzen_llamafirewall"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "raise NotImplementedError",
+  "if TYPE_CHECKING:",
+  "\\.\\.\\.",
+]
