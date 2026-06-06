@@ -1,0 +1,70 @@
+name: Bug report
+description: Something doesn't work as documented.
+title: "fix: <short summary>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For **security** issues, do not file here — use
+        [Security Advisories](https://github.com/jhawlwut/authzen-scanner/security/advisories/new).
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened
+      description: What you observed, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps or a code snippet. Include the message / tool call shape if relevant.
+      render: python
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: Package version or git SHA.
+    validations:
+      required: true
+  - type: dropdown
+    id: pdp
+    attributes:
+      label: PDP backend
+      options:
+        - Mock / not applicable
+        - OpenFGA
+        - Cedar (local gateway)
+        - Amazon Verified Permissions (AVP)
+        - OPA (kanywst/opa-authzen)
+        - Cerbos
+        - Topaz
+        - Other AuthZEN PDP
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: Python version and OS.
+      placeholder: "Python 3.12, Linux"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / traceback
+      description: Relevant output. Redact any secrets.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for a duplicate.
+          required: true
+        - label: This is not a security vulnerability (those go to Security Advisories).
+          required: true

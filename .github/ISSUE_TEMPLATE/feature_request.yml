@@ -1,0 +1,39 @@
+name: Feature request
+description: Propose a capability or change.
+title: "feat: <short summary>"
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: The gap or need. What can't you do today, and why does it matter?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you'd like to see. API sketch welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: scope
+    attributes:
+      label: Fit with the project
+      description: |
+        How does this relate to `docs/requirements.md`? Note if it touches an explicit
+        out-of-scope area (control-plane logs, OPA bundles, NeMo/MS rails, NL policy).
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for a duplicate.
+          required: true
+        - label: This relies only on public standards — no proprietary or confidential material.
+          required: true
