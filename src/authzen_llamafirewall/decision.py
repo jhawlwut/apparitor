@@ -1,0 +1,90 @@
+"""Pure, LlamaFirewall-free decision logic.
+
+Defines the internal verdict vocabulary and the functions that turn AuthZEN responses
+(and error conditions) into a verdict. Keeping this free of LlamaFirewall means the whole
+decision/aggregation/error surface is unit-testable without the ML stack; the scanner maps
+:class:`VerdictResult` onto LlamaFirewall's ``ScanResult`` at the boundary.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+
+from .config import OnError
+
+
+class Verdict(str, Enum):
+    """Internal authorization outcome (maps to ``ScanDecision`` at the boundary)."""
+
+    ALLOW = "allow"
+    HUMAN_REVIEW = "human_review"
+    BLOCK = "block"
+    SKIP = "skip"
+
+
+class VerdictStatus(str, Enum):
+    """Whether the verdict came from a clean evaluation or an error/skip path."""
+
+    SUCCESS = "success"
+    ERROR = "error"
+    SKIPPED = "skipped"
+
+
+# Severity lattice: a higher value may never be downgraded by an escalation.
+# SKIP < ALLOW < HUMAN_REVIEW < BLOCK
+_SEVERITY: dict[Verdict, int] = {
+    Verdict.SKIP: -1,
+    Verdict.ALLOW: 0,
+    Verdict.HUMAN_REVIEW: 1,
+    Verdict.BLOCK: 2,
+}
+
+_SCORE: dict[Verdict, float] = {
+    Verdict.SKIP: 0.0,
+    Verdict.ALLOW: 0.0,
+    Verdict.HUMAN_REVIEW: 0.5,
+    Verdict.BLOCK: 1.0,
+}
+
+
+@dataclass(frozen=True)
+class VerdictResult:
+    """A verdict plus the human-readable reason, score, and status."""
+
+    verdict: Verdict
+    reason: str
+    status: VerdictStatus = VerdictStatus.SUCCESS
+
+    @property
+    def score(self) -> float:
+        return _SCORE[self.verdict]
+
+
+def escalate(base: Verdict, target: Verdict) -> Verdict:
+    """Return the more severe of two verdicts (escalation can never downgrade)."""
+    return base if _SEVERITY[base] >= _SEVERITY[target] else target
+
+
+def map_single(base_decision: bool, *, wants_review: bool = False) -> Verdict:
+    """Map an AuthZEN boolean decision to a verdict (``True``→ALLOW, ``False``→BLOCK)."""
+    base = Verdict.ALLOW if base_decision else Verdict.BLOCK
+    return escalate(base, Verdict.HUMAN_REVIEW) if wants_review else base
+
+
+def aggregate(decisions: list[bool], *, expected: int) -> Verdict:
+    """Aggregate a batch: ALLOW iff every expected entry is allowed, else BLOCK.
+
+    Any count mismatch (``len(decisions) != expected``) or any ``False`` blocks the whole
+    message — a benign call smuggled beside a denied one, or a non-conformant PDP returning
+    a short/long array, must not pass.
+    """
+    if len(decisions) != expected or not all(decisions):
+        return Verdict.BLOCK
+    return Verdict.ALLOW
+
+
+def resolve_error(on_error: OnError, reason: str) -> VerdictResult:
+    """Resolve a PDP error per policy. There is no fail-open: deny or human review only."""
+    verdict = Verdict.BLOCK if on_error is OnError.DENY else Verdict.HUMAN_REVIEW
+    return VerdictResult(verdict=verdict, reason=reason, status=VerdictStatus.ERROR)
