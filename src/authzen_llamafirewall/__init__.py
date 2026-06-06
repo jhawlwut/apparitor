@@ -51,6 +51,7 @@ from .mapping import (
     mcp_resource_id,
     subject_scope,
 )
+from .metrics import DEFAULT_BUCKETS, InMemoryMetrics, MetricsSink, NoopMetrics
 from .models import (
     Action,
     BatchEvaluationRequest,
@@ -83,6 +84,11 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
     "Verdict",
     "VerdictResult",
     "VerdictStatus",
+    # metrics
+    "MetricsSink",
+    "InMemoryMetrics",
+    "NoopMetrics",
+    "DEFAULT_BUCKETS",
     # models
     "Subject",
     "Action",
