@@ -127,6 +127,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[dev,integration]"
       - name: Pytest (integration)
         run: pytest -m integration
