@@ -1,0 +1,18 @@
+# Local Cedar PDP: the official Cedar CLI behind a tiny AuthZEN gateway (see gateway/).
+# Built locally rather than pulled — there is no off-the-shelf Cedar-native AuthZEN image.
+services:
+  cedar-gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    ports:
+      - "8080:8080" # AuthZEN /access/v1/evaluation
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request as u,sys; sys.exit(0 if u.urlopen('http://localhost:8080/healthz').status==200 else 1)
+      interval: 3s
+      timeout: 3s
+      retries: 20
