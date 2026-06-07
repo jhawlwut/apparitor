@@ -90,8 +90,11 @@ useful rather than noisy:
   the problem, no drive-by churn, comments that explain *why*. Unreviewed or bulk
   machine-generated PRs (mass "fix-up" sweeps, output you haven't read) will be closed.
 - **Disclosure is encouraged, not required.** If an assistant did meaningful work, note it
-  with a commit trailer — `Assisted-by: <tool>` for help, `Generated-by: <tool>` for
-  substantially generated code — so reviewers know where to look. (Don't name the assistant
+  with a provenance trailer so reviewers know where to look — `Assisted-by:` when a human
+  authored with help, `Generated-by:` when a tool produced essentially all of a change
+  (e.g. `Assisted-by: <tool/model>`). The trailer names a *tool*, never an author: an
+  assistant is never listed as `Signed-off-by:` or `Co-authored-by:` — the DCO sign-off and
+  authorship are yours alone, and the change is attributed to you. (Don't name the assistant
   anywhere else in the commit or PR text.)
 - **Agent-instruction files are security-sensitive.** Changes to `AGENTS.md`, `CLAUDE.md`,
   and `.claude/**` are reviewed with extra scrutiny — coding agents treat them as trusted
