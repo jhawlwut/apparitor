@@ -97,8 +97,9 @@ useful rather than noisy:
   authorship are yours alone, and the change is attributed to you. (Don't name the assistant
   anywhere else in the commit or PR text.)
 - **Agent-instruction files are security-sensitive.** Changes to `AGENTS.md`, `CLAUDE.md`,
-  and `.claude/**` are reviewed with extra scrutiny — coding agents treat them as trusted
-  context, so they are an injection surface. See [`SECURITY.md`](SECURITY.md).
+  `.claude/**`, and the CI/release workflows are reviewed with extra scrutiny — coding agents
+  treat instruction files as trusted context and a compromised workflow could leak secrets,
+  so both are an injection / supply-chain surface. See [`SECURITY.md`](SECURITY.md).
 
 Working through an agent? [`AGENTS.md`](AGENTS.md) is the canonical guide (tool-specific
 files point to it), and reusable workflows live in [`.claude/skills/`](.claude/skills/).
