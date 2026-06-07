@@ -75,6 +75,31 @@ choice; human-driven branches should use the convention above.
 - CI must be green. Run the full check suite (see above) before pushing.
 - Add or update tests for behavioural changes; update docs in the same PR.
 
+## AI-assisted contributions
+
+AI coding assistants are **welcome** here — many of this project's own changes are
+agent-assisted. The bar is the same as for any contribution, and a few expectations keep it
+useful rather than noisy:
+
+- **You are the author of record.** By submitting, you certify you understand, have
+  reviewed, and have tested the change — you can explain and stand behind every line,
+  whoever (or whatever) drafted it. Signing off (`git commit -s`, see below) makes that
+  explicit.
+- **Same quality bar.** The full check suite must pass, behavioural changes need tests, and
+  the [anti-slop guidance in `AGENTS.md`](AGENTS.md) applies: smallest change that solves
+  the problem, no drive-by churn, comments that explain *why*. Unreviewed or bulk
+  machine-generated PRs (mass "fix-up" sweeps, output you haven't read) will be closed.
+- **Disclosure is encouraged, not required.** If an assistant did meaningful work, note it
+  with a commit trailer — `Assisted-by: <tool>` for help, `Generated-by: <tool>` for
+  substantially generated code — so reviewers know where to look. (Don't name the assistant
+  anywhere else in the commit or PR text.)
+- **Agent-instruction files are security-sensitive.** Changes to `AGENTS.md`, `CLAUDE.md`,
+  and `.claude/**` are reviewed with extra scrutiny — coding agents treat them as trusted
+  context, so they are an injection surface. See [`SECURITY.md`](SECURITY.md).
+
+Working through an agent? [`AGENTS.md`](AGENTS.md) is the canonical guide (tool-specific
+files point to it), and reusable workflows live in [`.claude/skills/`](.claude/skills/).
+
 ## Licensing & sign-off
 
 By contributing you agree your work is licensed under Apache-2.0. DCO-style sign-off is
