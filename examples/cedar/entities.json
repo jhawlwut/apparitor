@@ -1,0 +1,19 @@
+[
+  { "uid": { "type": "Agent", "id": "demo-agent" }, "attrs": {}, "parents": [] },
+  { "uid": { "type": "Action", "id": "tool_call.execute" }, "attrs": {}, "parents": [] },
+  {
+    "uid": { "type": "Tool", "id": "send_email" },
+    "attrs": { "sensitivity": "low", "destructive": false },
+    "parents": []
+  },
+  {
+    "uid": { "type": "Tool", "id": "read_file" },
+    "attrs": { "sensitivity": "low", "destructive": false },
+    "parents": []
+  },
+  {
+    "uid": { "type": "Tool", "id": "delete_database" },
+    "attrs": { "sensitivity": "high", "destructive": true },
+    "parents": []
+  }
+]

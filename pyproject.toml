@@ -60,6 +60,9 @@ dev = [
   "build>=1.2",
   "twine>=5",
 ]
+# Docker-gated integration tests (examples/openfga, examples/cedar). Kept out of `dev`
+# so the default unit run needs no Docker; installed only by the `integration` CI job.
+integration = ["testcontainers>=4"]
 
 [project.urls]
 Homepage = "https://github.com/jhawlwut/authzen-scanner"
