@@ -12,12 +12,17 @@ trap cleanup EXIT
 docker compose up -d
 
 printf 'waiting for OpenFGA'
+healthy=false
 for _ in $(seq 1 30); do
-  if curl -sf "$API/healthz" >/dev/null 2>&1; then break; fi
+  if curl -sf "$API/healthz" >/dev/null 2>&1; then healthy=true; break; fi
   printf '.'
   sleep 1
 done
 echo
+if [ "$healthy" = false ]; then
+  echo "OpenFGA did not become healthy within 30s" >&2
+  exit 1
+fi
 
 # A store scopes the model and tuples; the AuthZEN endpoints live under it.
 store_id=$(curl -sf "$API/stores" -d '{"name":"authzen-scanner-demo"}' | jq -r .id)

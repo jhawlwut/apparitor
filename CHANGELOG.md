@@ -34,6 +34,7 @@ All notable changes to this project are documented here. The format follows
   CI job that runs the integration suite.
 
 ### Not yet implemented
+
 - Amazon Verified Permissions (cloud) example and the end-to-end scenario walk-through.
 - Structured decision-log metrics (latency histogram, cache-hit counter) and the
   AuthZEN interop conformance dataset.
