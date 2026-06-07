@@ -26,3 +26,6 @@ Closes #
 - [ ] Tests added/updated for behavioural changes
 - [ ] Docs updated (`docs/`, README) where relevant
 - [ ] No secrets committed; security & layering invariants preserved (see `AGENTS.md`, `SECURITY.md`)
+
+<!-- Optional: if an AI assistant did meaningful work, an "Assisted-by:"/"Generated-by:"
+     commit trailer helps reviewers — see CONTRIBUTING.md. Not required. -->
