@@ -74,9 +74,9 @@ def test_batch_uses_spec_literal_semantics() -> None:
 
     assert EvaluationSemantic.DENY_ON_FIRST_DENY.value == "deny_on_first_deny"
     dumped = EvaluationsOptions(
-        evaluation_semantic=EvaluationSemantic.PERMIT_ON_FIRST_PERMIT
+        evaluations_semantic=EvaluationSemantic.PERMIT_ON_FIRST_PERMIT
     ).model_dump()
-    assert dumped["evaluation_semantic"] == "permit_on_first_permit"
+    assert dumped["evaluations_semantic"] == "permit_on_first_permit"
 
 
 @pytest.mark.parametrize(

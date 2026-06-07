@@ -72,7 +72,7 @@ class Resource(BaseModel):
 
 
 class EvaluationSemantic(str, Enum):
-    """Batch evaluation semantics (AuthZEN ``options.evaluation_semantic``)."""
+    """Batch evaluation semantics (AuthZEN ``options.evaluations_semantic``)."""
 
     EXECUTE_ALL = "execute_all"
     DENY_ON_FIRST_DENY = "deny_on_first_deny"
@@ -127,11 +127,15 @@ class EvaluationItem(BaseModel):
 
 
 class EvaluationsOptions(BaseModel):
-    """``options`` for a batch request."""
+    """``options`` for a batch request.
+
+    The wire field is ``evaluations_semantic`` (plural) per AuthZEN 1.0 — see the
+    conformance suite in ``tests/conformance``.
+    """
 
     model_config = _REQUEST_CONFIG
 
-    evaluation_semantic: EvaluationSemantic = EvaluationSemantic.EXECUTE_ALL
+    evaluations_semantic: EvaluationSemantic = EvaluationSemantic.EXECUTE_ALL
 
 
 class BatchEvaluationRequest(BaseModel):

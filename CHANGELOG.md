@@ -25,7 +25,6 @@ All notable changes to this project are documented here. The format follows
 - A dependency-free mock AuthZEN PDP for demos/tests.
 - Test suite: 90+ unit tests, 98% line+branch coverage on the LlamaFirewall-free
   modules (90% gate enforced), including the security invariants.
-
 - **Real PDP examples (M3).** Runnable OpenFGA example (native, experimental AuthZEN API;
   vendored model + relationship tuples) and Cedar example (policy-as-code behind a local
   AuthZEN → Cedar gateway running the official Cedar CLI), each with a `smoke.sh` and a
@@ -37,11 +36,20 @@ All notable changes to this project are documented here. The format follows
   a cache-hit/miss counter, surfaced on the engine and scanner. Structured audit logs now
   carry the verdict, status, subject (decision principal), correlation id, and an argument
   *fingerprint*; raw arguments and tokens are never logged (arguments are fingerprinted).
+- **AuthZEN 1.0 wire-conformance suite** (`tests/conformance/`): vendored canonical
+  request/response payloads driven through the models and client to prove wire
+  compatibility (request shapes, response decisions, batch aggregation, and malformed
+  responses failing closed).
+
+### Changed
+
+- **Spec fix:** the batch options field is now `evaluations_semantic` (plural), matching
+  AuthZEN 1.0; it was previously serialised as `evaluation_semantic`. Renames
+  `EvaluationsOptions.evaluation_semantic` → `evaluations_semantic` (pre-alpha, breaking).
 
 ### Not yet implemented
 
 - Amazon Verified Permissions (cloud) example and the end-to-end scenario walk-through.
-- The AuthZEN interop conformance dataset.
 
 ## [0.0.1a0]
 - Initial pre-alpha scaffold.
