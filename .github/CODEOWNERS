@@ -1,0 +1,10 @@
+# Security-sensitive paths route to maintainer review (see SECURITY.md —
+# "Agent-instruction files & prompt injection"). Agent-trusted instruction files and the
+# CI/release workflows are an injection / supply-chain surface, so changes to them get
+# extra scrutiny. Enforced once branch protection requires Code Owner review.
+
+/AGENTS.md            @jhawlwut
+/CLAUDE.md            @jhawlwut
+/SECURITY.md          @jhawlwut
+/.claude/             @jhawlwut
+/.github/             @jhawlwut
