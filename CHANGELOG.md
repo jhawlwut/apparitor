@@ -26,8 +26,16 @@ All notable changes to this project are documented here. The format follows
 - Test suite: 90+ unit tests, 98% line+branch coverage on the LlamaFirewall-free
   modules (90% gate enforced), including the security invariants.
 
+- **Real PDP examples (M3).** Runnable OpenFGA example (native, experimental AuthZEN API;
+  vendored model + relationship tuples) and Cedar example (policy-as-code behind a local
+  AuthZEN → Cedar gateway running the official Cedar CLI), each with a `smoke.sh` and a
+  Docker-gated `testcontainers` integration test that skips when no daemon is present.
+- `integration` optional-dependency group (`testcontainers`) and a `workflow_dispatch`
+  CI job that runs the integration suite.
+
 ### Not yet implemented
-- Example PDP deployments wiring real OpenFGA / Cedar (the mock PDP and scenarios are present).
+
+- Amazon Verified Permissions (cloud) example and the end-to-end scenario walk-through.
 - Structured decision-log metrics (latency histogram, cache-hit counter) and the
   AuthZEN interop conformance dataset.
 

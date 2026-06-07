@@ -1,0 +1,4 @@
+[
+  { "user": "agent:demo-agent", "relation": "can_execute", "object": "tool:send_email" },
+  { "user": "agent:demo-agent", "relation": "can_execute", "object": "tool:read_file" }
+]
