@@ -34,9 +34,9 @@ All notable changes to this project are documented here. The format follows
   CI job that runs the integration suite.
 - **Observability (M2).** A dependency-free metrics sink (`MetricsSink` protocol with a
   default `InMemoryMetrics` and a `NoopMetrics` opt-out): a decision-latency histogram and
-  a cache-hit/miss counter, surfaced on the engine and scanner. Structured decision logs
-  now carry the verdict, status, subject id, correlation id, and an argument *fingerprint*
-  (never raw arguments/PII; tokens stay redacted).
+  a cache-hit/miss counter, surfaced on the engine and scanner. Structured audit logs now
+  carry the verdict, status, subject (decision principal), correlation id, and an argument
+  *fingerprint*; raw arguments and tokens are never logged (arguments are fingerprinted).
 
 ### Not yet implemented
 

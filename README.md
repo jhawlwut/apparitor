@@ -96,9 +96,11 @@ m.cache_hits, m.cache_misses                # cache effectiveness (single-call d
 ```
 
 To export, pass your own `MetricsSink` (forward to Prometheus/OpenTelemetry) or
-`NoopMetrics()` to disable. Each decision also emits one structured log line (verdict,
-status, subject id, correlation id, tool names, and an argument *fingerprint* — never raw
-arguments, tokens, or PII).
+`NoopMetrics()` to disable. Each decision also emits one structured audit log line (verdict,
+status, subject id, correlation id, tool names, and an argument *fingerprint*). Raw tool
+arguments and tokens are never logged — arguments are fingerprinted. The subject id is the
+decision principal (it may itself be an identifier such as an email), so treat the
+`authzen_llamafirewall` logger as sensitive and route it accordingly.
 
 ## PDP support matrix
 

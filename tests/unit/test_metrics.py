@@ -192,6 +192,22 @@ async def test_faulty_sink_never_breaks_or_alters_the_decision(
 
 
 @pytest.mark.asyncio
+async def test_faulty_cache_metric_sink_does_not_flip_the_verdict(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    # record_cache runs inside the decision path; a raising sink there must not turn an
+    # ALLOW (or a cache hit) into an error BLOCK.
+    respx_mock.post(_EVAL_URL).respond(json={"decision": True})
+    engine = _engine(make_config(cache_enabled=True), noop_sleep, metrics=_RaisingMetrics())
+    call = make_openai_call("read", path="/tmp")
+    first = await engine.evaluate_tool_calls([call])  # miss → record_cache(False) raises
+    second = await engine.evaluate_tool_calls([call])  # hit → record_cache(True) raises
+
+    assert first.verdict is Verdict.ALLOW
+    assert second.verdict is Verdict.ALLOW
+
+
+@pytest.mark.asyncio
 async def test_noop_metrics_does_not_break_evaluation(
     make_config, make_openai_call, noop_sleep, respx_mock
 ) -> None:
