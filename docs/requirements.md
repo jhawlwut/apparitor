@@ -41,7 +41,7 @@ authoring.
 - Single: `POST /access/v1/evaluation` → body `{subject, action, resource, context?}`,
   response `{decision: bool, context?}`.
 - Batch: `POST /access/v1/evaluations` → top-level tuple as defaults + `evaluations[]`
-  + `options.evaluation_semantic ∈ {execute_all, deny_on_first_deny, permit_on_first_permit}`,
+  + `options.evaluations_semantic ∈ {execute_all, deny_on_first_deny, permit_on_first_permit}`,
   response `{evaluations: [{decision, context?}]}`.
 
 ## 3. Resolved design decisions
@@ -169,14 +169,16 @@ cache-hit counter from day one.
 3. **Retry policy per error class** → table in §3.6.
 4. **`review_predicate` vs a `false` decision** → deny wins; the predicate may only
    escalate (§3.5).
-5. **Batch aggregation vs `evaluation_semantic`** → ALL-allow required (§3.8); covered by a
+5. **Batch aggregation vs `evaluations_semantic`** → ALL-allow required (§3.8); covered by a
    parametrized decision table in the test suite.
 
 ## 5. Configuration reference (`ScannerConfig`)
 
 See [`config.py`](../src/authzen_llamafirewall/config.py). Secure defaults: `on_error=deny`,
 `verify_tls=True`, `allow_insecure_pdp=False`, `cache_enabled=False`,
-`evaluation_semantic=execute_all`, `request_budget_s=2.0`, `max_retries=2`.
+`request_budget_s=2.0`, `max_retries=2`. The batch semantic is not a `ScannerConfig`
+field — it lives on the wire model `EvaluationsOptions.evaluations_semantic` (default
+`execute_all`).
 
 ## 6. Acceptance criteria
 
