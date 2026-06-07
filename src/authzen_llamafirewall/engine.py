@@ -10,6 +10,7 @@ converts the verdict into a LlamaFirewall ``ScanResult`` at the boundary.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -27,6 +28,7 @@ from .decision import (
 )
 from .errors import AuthZENClientError, AuthZENConfigError, AuthZENServiceError
 from .mapping import DefaultToolCallMapper
+from .metrics import InMemoryMetrics, MetricsSink
 from .models import BatchEvaluationRequest, EvaluationItem, EvaluationsOptions
 
 if TYPE_CHECKING:
@@ -56,11 +58,15 @@ class AuthorizationEngine:
         client: AuthZENClient | None = None,
         mapper: ToolCallMapper | None = None,
         review_predicate: ReviewPredicate | None = None,
+        metrics: MetricsSink | None = None,
     ) -> None:
         self._config = config
         self._client = client or AuthZENClient(config)
         self._mapper = mapper or DefaultToolCallMapper(config)
         self._review = review_predicate
+        #: Decision-latency histogram + cache-hit counter. Defaults to an in-memory sink;
+        #: pass ``NoopMetrics()`` to disable or your own sink to forward elsewhere.
+        self.metrics: MetricsSink = metrics if metrics is not None else InMemoryMetrics()
         self._cache = (
             DecisionCache(ttl_s=config.cache_ttl_s, max_ttl_s=config.cache_max_ttl_s)
             if config.cache_enabled
@@ -73,38 +79,72 @@ class AuthorizationEngine:
         request_context: Mapping[str, Any] | None = None,
     ) -> VerdictResult:
         """Authorize every tool call in ``tool_calls`` and return a single verdict."""
-        if not tool_calls:
+        if not tool_calls:  # nothing to authorize — no decision to time or count
             return VerdictResult(Verdict.SKIP, _SKIP_REASON, VerdictStatus.SKIPPED)
 
-        ctx: Mapping[str, Any] = request_context or {}
+        started = time.perf_counter()
+        result, requests = await self._decide(tool_calls, request_context or {})
+        latency_s = time.perf_counter() - started
+        self._emit(result, requests, latency_s)
+        return result
+
+    def _emit(
+        self, result: VerdictResult, requests: list[EvaluationRequest], latency_s: float
+    ) -> None:
+        """Record metrics and the structured decision log.
+
+        Isolated behind a catch-all so a faulty/blocking custom :class:`MetricsSink` (or a
+        logging failure) can never break or alter a decision — observability is best-effort,
+        the verdict is not.
+        """
+        try:
+            self.metrics.record_decision(
+                verdict=result.verdict.value, status=result.status.value, latency_s=latency_s
+            )
+            if requests:
+                self._log(result, requests, latency_s)
+        except Exception:
+            logger.exception("authzen: metrics/log emission failed (verdict unaffected)")
+
+    def _record_cache(self, *, hit: bool) -> None:
+        """Record a cache outcome, isolated so a faulty sink can't alter the verdict.
+
+        This runs inside the decision path (unlike :meth:`_emit`), so it must swallow its
+        own errors — otherwise a raising custom sink would flip an ALLOW into an error BLOCK.
+        """
+        try:
+            self.metrics.record_cache(hit=hit)
+        except Exception:
+            logger.exception("authzen: cache metric emission failed (verdict unaffected)")
+
+    async def _decide(
+        self, tool_calls: list[dict[str, Any]], ctx: Mapping[str, Any]
+    ) -> tuple[VerdictResult, list[EvaluationRequest]]:
         try:
             requests = self._build_requests(tool_calls, ctx)
         except _UnparseableToolCall as exc:
-            return VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR)
+            return VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR), []
         except AuthZENConfigError as exc:
             # Our misconfiguration (e.g. no subject) — fail closed, loudly.
-            return VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR)
+            return VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR), []
 
         if not requests:  # every mapper abstained
-            return VerdictResult(Verdict.SKIP, _SKIP_REASON, VerdictStatus.SKIPPED)
+            return VerdictResult(Verdict.SKIP, _SKIP_REASON, VerdictStatus.SKIPPED), []
 
         try:
-            verdict = await self._evaluate(requests)
+            return await self._evaluate(requests), requests
         except AuthZENClientError as exc:
-            return VerdictResult(Verdict.BLOCK, f"{_DENY_REASON} ({exc})", VerdictStatus.ERROR)
+            verdict = VerdictResult(Verdict.BLOCK, f"{_DENY_REASON} ({exc})", VerdictStatus.ERROR)
         except AuthZENServiceError as exc:
-            result = resolve_error(self._config.on_error, f"PDP unavailable: {exc}")
-            logger.warning("authzen: PDP error, resolved as %s", result.verdict.value)
-            return result
+            verdict = resolve_error(self._config.on_error, f"PDP unavailable: {exc}")
+            logger.warning("authzen: PDP error, resolved as %s", verdict.verdict.value)
         except Exception:
             # Defense in depth: any unexpected internal error fails closed, never ALLOW.
             logger.exception("authzen: unexpected internal error during evaluation")
-            return VerdictResult(
+            verdict = VerdictResult(
                 Verdict.BLOCK, f"{_DENY_REASON} (internal error)", VerdictStatus.ERROR
             )
-
-        self._log(verdict, requests)
-        return verdict
+        return verdict, requests
 
     def _build_requests(
         self, tool_calls: list[dict[str, Any]], ctx: Mapping[str, Any]
@@ -123,17 +163,19 @@ class AuthorizationEngine:
         return await self._evaluate_batch(requests)
 
     async def _evaluate_single(self, request: EvaluationRequest) -> VerdictResult:
-        if self._cache is not None:
-            key = decision_cache_key(request)
-            if self._cache.get(key):
+        key = decision_cache_key(request) if self._cache is not None else None
+        if self._cache is not None and key is not None:
+            hit = self._cache.get(key)
+            self._record_cache(hit=bool(hit))
+            if hit:
                 return VerdictResult(Verdict.ALLOW, f"{_ALLOW_REASON} (cached)")
 
         response = await self._client.evaluate(request)
         wants_review = self._wants_review(response.context)
         verdict = map_single(response.decision, wants_review=wants_review)
 
-        if verdict is Verdict.ALLOW and self._cache is not None:
-            self._cache.set_allow(decision_cache_key(request))
+        if verdict is Verdict.ALLOW and self._cache is not None and key is not None:
+            self._cache.set_allow(key)  # reuse the digest computed above (hot path)
         return VerdictResult(verdict, _reason_for(verdict))
 
     async def _evaluate_batch(self, requests: list[EvaluationRequest]) -> VerdictResult:
@@ -160,11 +202,30 @@ class AuthorizationEngine:
     def _wants_review(self, context: dict[str, Any] | None) -> bool:
         return bool(self._review and context is not None and self._review(context))
 
-    def _log(self, verdict: VerdictResult, requests: list[EvaluationRequest]) -> None:
+    def _log(
+        self, result: VerdictResult, requests: list[EvaluationRequest], latency_s: float
+    ) -> None:
+        """Operator/audit decision log.
+
+        Records the **subject (decision principal)**, resource ids, correlation id, and an
+        argument *fingerprint* — deliberately, per requirements §3.10, since an authorization
+        audit trail must say *who* was allowed/denied. Raw tool arguments and tokens are
+        never logged (arguments are fingerprinted). The subject id is the principal itself,
+        so it may be an email or other identifier; treat this logger as sensitive and route
+        it accordingly.
+        """
+        first = requests[0]
+        correlation = (first.context or {}).get("correlation_id")
         logger.info(
-            "authzen: verdict=%s tools=%s",
-            verdict.verdict.value,
+            "authzen decision verdict=%s status=%s subject=%s correlation=%s "
+            "tools=%s fingerprints=%s latency_ms=%.1f",
+            result.verdict.value,
+            result.status.value,
+            first.subject.id,
+            correlation,
             [r.resource.id for r in requests],
+            [_fingerprint(r) for r in requests],
+            latency_s * 1000,
         )
 
     async def aclose(self) -> None:
@@ -183,6 +244,13 @@ def _normalize(raw: dict[str, Any]) -> NormalizedToolCall:
         return adapter.normalize(raw)
     except ValueError as exc:
         raise _UnparseableToolCall(f"malformed tool call: {exc}") from exc
+
+
+def _fingerprint(request: EvaluationRequest) -> str:
+    """Short, stable digest over the full request tuple — identifies a call without logging
+    its (possibly sensitive) arguments. Recomputes the cache-key digest (same
+    canonicalisation); cheap and only on the INFO log path."""
+    return decision_cache_key(request)[:12]
 
 
 def _reason_for(verdict: Verdict) -> str:

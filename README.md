@@ -82,6 +82,26 @@ The AuthZEN client and models are **LlamaFirewall-free** and usable on their own
 from authzen_llamafirewall.models import EvaluationRequest   # no LlamaFirewall needed
 ```
 
+## Observability
+
+Every decision is timed and counted. The scanner (and the standalone `AuthorizationEngine`)
+exposes a `metrics` sink — by default an in-process `InMemoryMetrics` with a latency
+histogram and decision/cache counters:
+
+```python
+m = scanner.metrics                         # InMemoryMetrics by default
+m.latency_histogram()                       # [(le_seconds, cumulative_count), …, (+Inf, n)]
+m.decisions                                 # {("allow", "success"): 12, ("block", "error"): 1}
+m.cache_hits, m.cache_misses                # cache effectiveness (single-call decisions)
+```
+
+To export, pass your own `MetricsSink` (forward to Prometheus/OpenTelemetry) or
+`NoopMetrics()` to disable. Each decision also emits one structured audit log line (verdict,
+status, subject id, correlation id, tool names, and an argument *fingerprint*). Raw tool
+arguments and tokens are never logged — arguments are fingerprinted. The subject id is the
+decision principal (it may itself be an identifier such as an email), so treat the
+`authzen_llamafirewall` logger as sensitive and route it accordingly.
+
 ## PDP support matrix
 
 | PDP | AuthZEN support | Example |

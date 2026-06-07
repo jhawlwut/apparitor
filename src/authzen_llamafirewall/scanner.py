@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     import httpx
 
     from .mapping import ToolCallMapper
+    from .metrics import MetricsSink
 
 _DECISION: dict[Verdict, ScanDecision] = {
     Verdict.ALLOW: ScanDecision.ALLOW,
@@ -76,6 +77,7 @@ class AuthZENScanner(Scanner):  # type: ignore[misc]  # LlamaFirewall ships no t
         mapper: ToolCallMapper | None = None,
         http_client: httpx.AsyncClient | None = None,
         review_predicate: ReviewPredicate | None = None,
+        metrics: MetricsSink | None = None,
         scanner_name: str = "AuthZENAuthorizationScanner",
         block_threshold: float = 1.0,
     ) -> None:
@@ -89,8 +91,17 @@ class AuthZENScanner(Scanner):  # type: ignore[misc]  # LlamaFirewall ships no t
 
         client = AuthZENClient(config, http_client=http_client)
         self._engine = AuthorizationEngine(
-            config, client=client, mapper=mapper, review_predicate=review_predicate
+            config,
+            client=client,
+            mapper=mapper,
+            review_predicate=review_predicate,
+            metrics=metrics,
         )
+
+    @property
+    def metrics(self) -> MetricsSink:
+        """The engine's metrics sink (latency histogram + cache-hit counter)."""
+        return self._engine.metrics
 
     async def scan(self, message: Message, past_trace: Trace | None = None) -> ScanResult:
         """Authorize the tool call(s) in ``message`` against the PDP."""
