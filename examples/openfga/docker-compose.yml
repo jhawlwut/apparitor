@@ -17,7 +17,7 @@ services:
     ports:
       - "8080:8080" # HTTP API, including /stores/{id}/access/v1/evaluation
     healthcheck:
-      test: ["CMD", "grpc_health_probe", "-addr=localhost:8081"]
+      test: ["CMD", "/usr/local/bin/grpc_health_probe", "-addr=localhost:8081"]
       interval: 3s
       timeout: 3s
       retries: 20

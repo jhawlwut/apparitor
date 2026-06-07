@@ -13,12 +13,17 @@ trap cleanup EXIT
 docker compose up -d --build
 
 printf 'waiting for the gateway'
+healthy=false
 for _ in $(seq 1 60); do
-  if curl -sf "$API/healthz" >/dev/null 2>&1; then break; fi
+  if curl -sf "$API/healthz" >/dev/null 2>&1; then healthy=true; break; fi
   printf '.'
   sleep 1
 done
 echo
+if [ "$healthy" = false ]; then
+  echo "Cedar gateway did not become healthy in time" >&2
+  exit 1
+fi
 
 evaluate() {
   curl -sf "$API/access/v1/evaluation" -d "$(

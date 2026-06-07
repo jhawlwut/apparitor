@@ -33,6 +33,11 @@ def test_entity_uid_maps_known_and_unknown_types() -> None:
     assert gateway._entity_uid("widget", "w1") == 'Widget::"w1"'
 
 
+def test_entity_uid_rejects_embedded_double_quote() -> None:
+    with pytest.raises(ValueError, match="double-quote"):
+        gateway._entity_uid("tool", 'send"_email')
+
+
 def test_decide_requires_core_fields() -> None:
     evaluator = gateway.CedarEvaluator(Path("policies.cedar"), Path("entities.json"))
     with pytest.raises(ValueError, match="required"):

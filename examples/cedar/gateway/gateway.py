@@ -34,6 +34,11 @@ _ALLOW_EXIT = 0
 
 
 def _entity_uid(kind: str, identifier: str) -> str:
+    # A double-quote would produce a malformed Cedar UID (Agent::"foo"bar"). Reject it
+    # rather than emit something the CLI can't parse. Normalised tool names never contain
+    # quotes, so this only guards against pathological input.
+    if '"' in identifier:
+        raise ValueError(f"identifier may not contain a double-quote: {identifier!r}")
     cedar_type = _TYPE_MAP.get(kind, kind.title())
     return f'{cedar_type}::"{identifier}"'
 
@@ -109,6 +114,9 @@ def make_handler(evaluator: CedarEvaluator) -> type[BaseHTTPRequestHandler]:
                 decision = evaluator.decide(body)
             except ValueError as exc:
                 self._send({"error": str(exc)}, status=400)
+            except Exception:
+                # Any other failure fails closed: a gateway error is never an allow.
+                self._send({"decision": False})
             else:
                 self._send({"decision": decision})
 
