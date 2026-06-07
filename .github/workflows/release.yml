@@ -32,6 +32,8 @@ jobs:
     # in the PyPI project settings and create a "pypi" environment in repo settings.
     environment: pypi
     permissions:
+      # OIDC for PyPI Trusted Publishing. Add `contents: write` only if a step also
+      # creates a GitHub Release.
       id-token: write
     steps:
       - uses: actions/download-artifact@v8
