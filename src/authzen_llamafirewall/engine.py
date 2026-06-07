@@ -66,7 +66,7 @@ class AuthorizationEngine:
         self._review = review_predicate
         #: Decision-latency histogram + cache-hit counter. Defaults to an in-memory sink;
         #: pass ``NoopMetrics()`` to disable or your own sink to forward elsewhere.
-        self.metrics: MetricsSink = metrics or InMemoryMetrics()
+        self.metrics: MetricsSink = metrics if metrics is not None else InMemoryMetrics()
         self._cache = (
             DecisionCache(ttl_s=config.cache_ttl_s, max_ttl_s=config.cache_max_ttl_s)
             if config.cache_enabled
@@ -105,6 +105,17 @@ class AuthorizationEngine:
                 self._log(result, requests, latency_s)
         except Exception:
             logger.exception("authzen: metrics/log emission failed (verdict unaffected)")
+
+    def _record_cache(self, *, hit: bool) -> None:
+        """Record a cache outcome, isolated so a faulty sink can't alter the verdict.
+
+        This runs inside the decision path (unlike :meth:`_emit`), so it must swallow its
+        own errors — otherwise a raising custom sink would flip an ALLOW into an error BLOCK.
+        """
+        try:
+            self.metrics.record_cache(hit=hit)
+        except Exception:
+            logger.exception("authzen: cache metric emission failed (verdict unaffected)")
 
     async def _decide(
         self, tool_calls: list[dict[str, Any]], ctx: Mapping[str, Any]
@@ -155,7 +166,7 @@ class AuthorizationEngine:
         key = decision_cache_key(request) if self._cache is not None else None
         if self._cache is not None and key is not None:
             hit = self._cache.get(key)
-            self.metrics.record_cache(hit=bool(hit))
+            self._record_cache(hit=bool(hit))
             if hit:
                 return VerdictResult(Verdict.ALLOW, f"{_ALLOW_REASON} (cached)")
 
@@ -194,7 +205,15 @@ class AuthorizationEngine:
     def _log(
         self, result: VerdictResult, requests: list[EvaluationRequest], latency_s: float
     ) -> None:
-        """Structured decision log: ids + an argument *fingerprint*, never raw args/PII."""
+        """Operator/audit decision log.
+
+        Records the **subject (decision principal)**, resource ids, correlation id, and an
+        argument *fingerprint* — deliberately, per requirements §3.10, since an authorization
+        audit trail must say *who* was allowed/denied. Raw tool arguments and tokens are
+        never logged (arguments are fingerprinted). The subject id is the principal itself,
+        so it may be an email or other identifier; treat this logger as sensitive and route
+        it accordingly.
+        """
         first = requests[0]
         correlation = (first.context or {}).get("correlation_id")
         logger.info(
