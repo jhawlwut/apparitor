@@ -32,12 +32,16 @@ All notable changes to this project are documented here. The format follows
   Docker-gated `testcontainers` integration test that skips when no daemon is present.
 - `integration` optional-dependency group (`testcontainers`) and a `workflow_dispatch`
   CI job that runs the integration suite.
+- **Observability (M2).** A dependency-free metrics sink (`MetricsSink` protocol with a
+  default `InMemoryMetrics` and a `NoopMetrics` opt-out): a decision-latency histogram and
+  a cache-hit/miss counter, surfaced on the engine and scanner. Structured audit logs now
+  carry the verdict, status, subject (decision principal), correlation id, and an argument
+  *fingerprint*; raw arguments and tokens are never logged (arguments are fingerprinted).
 
 ### Not yet implemented
 
 - Amazon Verified Permissions (cloud) example and the end-to-end scenario walk-through.
-- Structured decision-log metrics (latency histogram, cache-hit counter) and the
-  AuthZEN interop conformance dataset.
+- The AuthZEN interop conformance dataset.
 
 ## [0.0.1a0]
 - Initial pre-alpha scaffold.
