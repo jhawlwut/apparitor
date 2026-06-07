@@ -1,0 +1,151 @@
+{
+  "_source": "AuthZEN Authorization API 1.0 (OpenID, finalized) — normative request/response examples from https://openid.net/specs/authorization-interop-spec-1_0.html, plus derived deny/ABAC/malformed edge cases. See README.md.",
+  "single": [
+    {
+      "name": "spec_single_allow",
+      "source": "AuthZEN 1.0 — single Access Evaluation example",
+      "request": {
+        "subject": { "type": "user", "id": "alice@example.com" },
+        "action": { "name": "can_read" },
+        "resource": { "type": "todo", "id": "1" },
+        "context": { "time": "1985-10-26T01:22-07:00" }
+      },
+      "response": { "decision": true },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "single_deny",
+      "source": "AuthZEN 1.0 single shape — deny response",
+      "request": {
+        "subject": { "type": "user", "id": "alice@example.com" },
+        "action": { "name": "can_delete" },
+        "resource": { "type": "todo", "id": "1" }
+      },
+      "response": { "decision": false },
+      "expected_decision": false,
+      "expected_verdict": "block"
+    },
+    {
+      "name": "single_allow_with_advisory_context",
+      "source": "AuthZEN 1.0 — response context is advisory and may carry reasons",
+      "request": {
+        "subject": { "type": "user", "id": "bob@example.com" },
+        "action": { "name": "can_read" },
+        "resource": { "type": "todo", "id": "2" }
+      },
+      "response": {
+        "decision": true,
+        "context": { "id": "0", "reason_admin": { "en": "allowed by policy" } }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "single_abac_with_properties",
+      "source": "AuthZEN 1.0 — subject/resource properties carry ABAC attributes",
+      "request": {
+        "subject": {
+          "type": "user",
+          "id": "carol@example.com",
+          "properties": { "department": "sales" }
+        },
+        "action": { "name": "can_update" },
+        "resource": {
+          "type": "todo",
+          "id": "3",
+          "properties": { "owner": "carol@example.com" }
+        }
+      },
+      "response": { "decision": true },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    }
+  ],
+  "batch": [
+    {
+      "name": "spec_batch_execute_all_mixed",
+      "source": "AuthZEN 1.0 — batch Access Evaluations example (execute_all)",
+      "request": {
+        "subject": { "type": "user", "id": "alice@example.com" },
+        "action": { "name": "read" },
+        "options": { "evaluations_semantic": "execute_all" },
+        "evaluations": [
+          { "resource": { "type": "document", "id": "1" } },
+          { "resource": { "type": "document", "id": "2" } },
+          { "resource": { "type": "document", "id": "3" } }
+        ]
+      },
+      "response": {
+        "evaluations": [{ "decision": true }, { "decision": false }, { "decision": true }]
+      },
+      "expected_decisions": [true, false, true],
+      "expected_verdict": "block"
+    },
+    {
+      "name": "batch_all_allow",
+      "source": "AuthZEN 1.0 batch shape — every entry allowed",
+      "request": {
+        "subject": { "type": "user", "id": "alice@example.com" },
+        "action": { "name": "read" },
+        "evaluations": [
+          { "resource": { "type": "document", "id": "1" } },
+          { "resource": { "type": "document", "id": "2" } }
+        ]
+      },
+      "response": {
+        "evaluations": [{ "decision": true }, { "decision": true }]
+      },
+      "expected_decisions": [true, true],
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "batch_short_array_blocks",
+      "source": "Defensive: a PDP returning fewer decisions than requested must BLOCK",
+      "request": {
+        "subject": { "type": "user", "id": "alice@example.com" },
+        "action": { "name": "read" },
+        "evaluations": [
+          { "resource": { "type": "document", "id": "1" } },
+          { "resource": { "type": "document", "id": "2" } },
+          { "resource": { "type": "document", "id": "3" } }
+        ]
+      },
+      "response": {
+        "evaluations": [{ "decision": true }, { "decision": true }]
+      },
+      "expected_decisions": [true, true],
+      "expected_verdict": "block"
+    }
+  ],
+  "invalid_responses": [
+    { "name": "missing_decision", "response": {}, "reason": "decision is REQUIRED" },
+    {
+      "name": "null_decision",
+      "response": { "decision": null },
+      "reason": "StrictBool rejects null — never a coerced ALLOW"
+    },
+    {
+      "name": "non_bool_string_decision",
+      "response": { "decision": "true" },
+      "reason": "StrictBool rejects a string — never a coerced truthy ALLOW"
+    },
+    {
+      "name": "non_bool_int_decision",
+      "response": { "decision": 1 },
+      "reason": "StrictBool rejects an int — never a coerced truthy ALLOW"
+    }
+  ],
+  "invalid_batch_responses": [
+    {
+      "name": "batch_nested_missing_decision",
+      "response": { "evaluations": [{ "decision": true }, {}] },
+      "reason": "a missing nested decision is malformed — never a coerced ALLOW"
+    },
+    {
+      "name": "batch_nested_non_bool_decision",
+      "response": { "evaluations": [{ "decision": "true" }] },
+      "reason": "StrictBool rejects a nested string decision"
+    }
+  ]
+}
