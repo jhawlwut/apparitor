@@ -63,6 +63,10 @@ dev = [
 # Docker-gated integration tests (examples/openfga, examples/cedar). Kept out of `dev`
 # so the default unit run needs no Docker; installed only by the `integration` CI job.
 integration = ["testcontainers>=4"]
+# CycloneDX SBOM generator (see scripts/generate_sbom.sh). Pinned here — not in the shell
+# script — so Dependabot's pip ecosystem keeps it current, matching the repo's pinned-and-
+# maintained posture. Build-only tooling, like `build`/`twine`; never a runtime dependency.
+sbom = ["cyclonedx-bom==7.3.0"]
 
 [project.urls]
 Homepage = "https://github.com/jhawlwut/authzen-scanner"

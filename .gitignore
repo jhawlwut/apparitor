@@ -5,6 +5,7 @@ __pycache__/
 .eggs/
 build/
 dist/
+sbom/
 .venv/
 venv/
 
