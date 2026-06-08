@@ -32,13 +32,12 @@ As an authorization control, the integrity of what ships matters as much as its 
   runtime dependency tree against the PyPA/OSV advisory database on every push, every PR,
   and weekly.
 - **SBOM.** CI generates a [CycloneDX](https://cyclonedx.org/) Software Bill of Materials of
-  the runtime dependency tree on every build — and the release build retains it as a build
-  artifact — via [`scripts/generate_sbom.sh`](scripts/generate_sbom.sh) (the generator is
-  pinned through the `sbom` extra in `pyproject.toml`). It is built from a clean runtime-only
-  install (so dev/build tooling never leaks in), schema-validated, content-checked for the
-  expected core dependencies (so a degenerate SBOM can't pass silently), and reproducible.
-  Regenerate locally with `scripts/generate_sbom.sh`. _Follow-up: attach the SBOM to the
-  published GitHub Release / PyPI artifact so it is durable rather than a build artifact._
+  the runtime dependency tree on every build, and each tagged release **attaches it to the
+  GitHub Release**, via [`scripts/generate_sbom.sh`](scripts/generate_sbom.sh) (the generator
+  is pinned through the `sbom` extra in `pyproject.toml`). It is built from a clean
+  runtime-only install (so dev/build tooling never leaks in), schema-validated,
+  content-checked for the expected core dependencies (so a degenerate SBOM can't pass
+  silently), and reproducible. Regenerate locally with `scripts/generate_sbom.sh`.
 
 ## Agent-instruction files & prompt injection
 
