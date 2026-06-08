@@ -96,6 +96,16 @@ jobs:
       - run: python -m build
       - name: Twine check
         run: twine check dist/*
+      # Generate + schema-validate the CycloneDX SBOM on every build so the runtime
+      # dependency tree (and the generator script) stay green continuously, not just at
+      # release. Writes to sbom/ — never dist/, which the release job publishes to PyPI.
+      - name: Generate SBOM (CycloneDX, runtime tree)
+        run: scripts/generate_sbom.sh
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: sbom/authzen-llamafirewall-scanner.cdx.json
 
   # The scanner's only hard dependency is LlamaFirewall (a heavy ML stack), so its
   # end-to-end test runs in a dedicated job that installs the [llamafirewall] extra.

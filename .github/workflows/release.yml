@@ -24,6 +24,14 @@ jobs:
         with:
           name: dist
           path: dist/
+      # Ship a CycloneDX SBOM of the runtime dependency tree alongside the release. Written
+      # to sbom/ (not dist/) so it is not fed to `twine upload` in the publish job.
+      - name: Generate SBOM (CycloneDX, runtime tree)
+        run: scripts/generate_sbom.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: sbom/authzen-llamafirewall-scanner.cdx.json
 
   publish:
     needs: build
