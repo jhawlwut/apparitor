@@ -1,10 +1,10 @@
-<p align="center">
-  <a href="https://app.aikido.dev/repositories/2253820/checks"><img src="https://img.shields.io/badge/Aikido%20Security-scanned%20daily-4c1?logo=aikido&logoColor=white" alt="Aikido Security Status"></a>
-</p>
-
 # authzen-llamafirewall-scanner
 
 [![CI](https://github.com/jhawlwut/authzen-scanner/actions/workflows/ci.yml/badge.svg)](https://github.com/jhawlwut/authzen-scanner/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/jhawlwut/authzen-scanner/badge)](https://scorecard.dev/viewer/?uri=github.com/jhawlwut/authzen-scanner)
+[![CodeQL](https://github.com/jhawlwut/authzen-scanner/actions/workflows/codeql.yml/badge.svg)](https://github.com/jhawlwut/authzen-scanner/actions/workflows/codeql.yml)
+[![pip-audit](https://github.com/jhawlwut/authzen-scanner/actions/workflows/pip-audit.yml/badge.svg)](https://github.com/jhawlwut/authzen-scanner/actions/workflows/pip-audit.yml)
+[![Aikido Security](https://img.shields.io/badge/Aikido%20Security-scanned%20daily-4c1?logo=aikido&logoColor=white)](https://app.aikido.dev/repositories/2253820/checks)
 [![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen.svg)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
