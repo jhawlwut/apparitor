@@ -35,6 +35,11 @@ The gateway fails **closed**: any `cedar` error or non-Allow exit code becomes
 `decision: false`. Cedar's default `action.name` (`tool_call.execute`) is used as-is — no
 relation wiring is needed, unlike OpenFGA.
 
+It serves both AuthZEN endpoints: single `POST /access/v1/evaluation` and batch
+`POST /access/v1/evaluations`. The scanner uses the batch endpoint to pre-authorize a
+multi-tool-call message in one request; each entry is evaluated independently and fails
+closed, so under `execute_all` the message is allowed only if every call is permitted.
+
 ## Run
 
 Requires Docker, `curl`, and `jq`. The first run builds the Cedar CLI from source
@@ -45,7 +50,8 @@ Requires Docker, `curl`, and `jq`. The first run builds the Cedar CLI from sourc
 ```
 
 This builds + starts the gateway ([`docker-compose.yml`](docker-compose.yml)) and asserts
-a permitted tool is allowed and a destructive one is denied, then tears down.
+a permitted tool is allowed, a destructive one is denied, and a batch is allowed only when
+every entry is permitted — then tears down.
 
 ## Point the scanner at it
 

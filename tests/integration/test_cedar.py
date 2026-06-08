@@ -61,3 +61,25 @@ async def test_permit_and_forbid(
         await engine.aclose()
     assert allowed.verdict is Verdict.ALLOW
     assert blocked.verdict is Verdict.BLOCK
+
+
+@pytest.mark.asyncio
+async def test_batch_all_or_nothing(
+    cedar_base_url: str, make_openai_call: Callable[..., dict[str, object]]
+) -> None:
+    # Multi-tool-call messages take the batch path (POST /access/v1/evaluations); execute_all
+    # means the message is allowed only if every call is permitted.
+    engine = AuthorizationEngine(
+        ScannerConfig(pdp_url=cedar_base_url, allow_insecure_pdp=True, agent_id="demo-agent")
+    )
+    try:
+        all_granted = await engine.evaluate_tool_calls(
+            [make_openai_call("send_email"), make_openai_call("read_file")]
+        )
+        one_ungranted = await engine.evaluate_tool_calls(
+            [make_openai_call("send_email"), make_openai_call("delete_database")]
+        )
+    finally:
+        await engine.aclose()
+    assert all_granted.verdict is Verdict.ALLOW
+    assert one_ungranted.verdict is Verdict.BLOCK
