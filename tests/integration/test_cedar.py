@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from authzen_llamafirewall import AuthorizationEngine, ScannerConfig, Verdict
+from apparitor import AuthorizationEngine, ScannerConfig, Verdict
 
 from ._helpers import wait_healthy
 

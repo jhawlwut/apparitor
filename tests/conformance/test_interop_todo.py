@@ -25,9 +25,9 @@ from typing import Any
 
 import pytest
 
-from authzen_llamafirewall.client import AuthZENClient
-from authzen_llamafirewall.decision import Verdict, aggregate, map_single
-from authzen_llamafirewall.models import BatchEvaluationRequest, EvaluationRequest
+from apparitor.client import AuthZENClient
+from apparitor.decision import Verdict, aggregate, map_single
+from apparitor.models import BatchEvaluationRequest, EvaluationRequest
 
 pytestmark = pytest.mark.unit
 

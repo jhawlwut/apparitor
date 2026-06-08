@@ -12,7 +12,7 @@ python examples/mock_pdp/mock_pdp.py --port 8080 --deny tool_call.execute:databa
 Then point the scanner at it (local dev → `allow_insecure_pdp=True` since it's plain HTTP):
 
 ```python
-from authzen_llamafirewall import AuthZENScanner, ScannerConfig
+from apparitor import AuthZENScanner, ScannerConfig
 
 scanner = AuthZENScanner(config=ScannerConfig(
     pdp_url="http://127.0.0.1:8080", allow_insecure_pdp=True, agent_id="demo-agent",

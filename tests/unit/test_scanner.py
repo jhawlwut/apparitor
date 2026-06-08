@@ -15,9 +15,9 @@ pytest.importorskip("llamafirewall")
 
 from llamafirewall import AssistantMessage, ScanDecision, ScanStatus  # noqa: E402
 
-from authzen_llamafirewall import AuthZENScanner, Subject  # noqa: E402
-from authzen_llamafirewall.decision import Verdict, VerdictResult, VerdictStatus  # noqa: E402
-from authzen_llamafirewall.mapping import subject_scope  # noqa: E402
+from apparitor import AuthZENScanner, Subject  # noqa: E402
+from apparitor.decision import Verdict, VerdictResult, VerdictStatus  # noqa: E402
+from apparitor.mapping import subject_scope  # noqa: E402
 
 _EVAL_URL = "http://pdp.test/access/v1/evaluation"
 

@@ -1,9 +1,10 @@
 # Technical Requirements & Design Decisions
 
-This document specifies the AuthZEN authorization scanner for LlamaFirewall. It is the
-authoritative design reference that the implementation satisfies. It was hardened by a
-six-discipline principal review (AI/agent, solution architecture, software, security,
-DevOps, QA).
+This document specifies apparitor's shipping authorization pipeline: the AuthZEN evaluation
+core and its LlamaFirewall scanner integration. It is the authoritative design reference
+that the implementation satisfies; broader firewall and policy-engine support is tracked in
+[`ROADMAP.md`](../ROADMAP.md). It was hardened by a six-discipline principal review
+(AI/agent, solution architecture, software, security, DevOps, QA).
 
 ## 1. Goal & scope
 
@@ -174,7 +175,7 @@ cache-hit counter from day one.
 
 ## 5. Configuration reference (`ScannerConfig`)
 
-See [`config.py`](../src/authzen_llamafirewall/config.py). Secure defaults: `on_error=deny`,
+See [`config.py`](../src/apparitor/config.py). Secure defaults: `on_error=deny`,
 `verify_tls=True`, `allow_insecure_pdp=False`, `cache_enabled=False`,
 `request_budget_s=2.0`, `max_retries=2`. The batch semantic is not a `ScannerConfig`
 field — it lives on the wire model `EvaluationsOptions.evaluations_semantic` (default

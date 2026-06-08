@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Thanks for the report. For **security** issues, do not file here — use
-        [Security Advisories](https://github.com/jhawlwut/authzen-scanner/security/advisories/new).
+        [Security Advisories](https://github.com/jhawlwut/apparitor/security/advisories/new).
   - type: textarea
     id: summary
     attributes:
