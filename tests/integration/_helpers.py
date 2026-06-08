@@ -71,7 +71,8 @@ def _ensure_openfga_binary() -> str:
     cache.mkdir(parents=True, exist_ok=True)
     archive = cache / "openfga.tar.gz"
     if not archive.exists():
-        urllib.request.urlretrieve(_OPENFGA_URL, archive)
+        with urllib.request.urlopen(_OPENFGA_URL, timeout=30) as resp:
+            archive.write_bytes(resp.read())
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     if digest != _OPENFGA_SHA256:
         archive.unlink(missing_ok=True)
@@ -121,3 +122,5 @@ def native_openfga() -> Iterator[str]:
             proc.wait(timeout=10)
         if proc.poll() is None:
             proc.kill()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=5)

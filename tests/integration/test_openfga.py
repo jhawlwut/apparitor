@@ -29,7 +29,7 @@ from ._helpers import native_openfga, wait_healthy
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-_NATIVE = bool(os.getenv("APPARITOR_OPENFGA_NATIVE"))
+_NATIVE = os.getenv("APPARITOR_OPENFGA_NATIVE", "").strip().lower() in {"1", "true", "yes", "on"}
 
 # The native backend needs no Docker daemon, so it must not carry the `docker` marker
 # (which would otherwise skip it when no daemon is present — see tests/conftest.py).

@@ -53,8 +53,9 @@ down on exit.
 ### Without Docker
 
 Where the Docker registry is unreachable but `github.com` is not (restricted-egress CI,
-sandboxes), the integration test can run OpenFGA from its pinned release binary instead of
-a container — downloaded once and **SHA-256-verified** before it runs:
+sandboxes), the integration test can run OpenFGA from its pinned release binary
+(**linux/amd64 only**) instead of a container — downloaded once and **SHA-256-verified**
+before it runs:
 
 ```bash
 APPARITOR_OPENFGA_NATIVE=1 pytest tests/integration/test_openfga.py -m integration --no-cov
