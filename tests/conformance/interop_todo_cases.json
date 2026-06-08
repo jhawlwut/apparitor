@@ -1,0 +1,420 @@
+{
+  "_source": "OpenID AuthZEN interop 'Todo' scenario (Rick & Morty role matrix). User directory from openid/authzen interop/authzen-todo-backend/src/directory.ts; action rules and request shapes from the todo-1.1 payload spec (interop/authzen-interop-website/docs/scenarios/todo-1.1/index.md, rendered at https://authzen-interop.net/docs/scenarios/todo-1.1/). See README.md.",
+  "_deviations": [
+    "Subjects use the directory's email identity (e.g. rick@the-citadel.com); the live interop authenticates via OIDC and resolves the encoded `sub` (e.g. fd1614d3-... / connector `local`) to the same identity through the directory.",
+    "`can_create_todo` requests carry a resource.id ('new-todo'); the interop draft payload omits it, but AuthZEN 1.0 marks resource.id REQUIRED and the decision is role-based (id-independent).",
+    "The optional empty `context: {}` shown by the interop is omitted; context is OPTIONAL in AuthZEN 1.0 and carries no information here."
+  ],
+  "directory": {
+    "rick@the-citadel.com": ["admin", "evil_genius"],
+    "morty@the-citadel.com": ["editor"],
+    "summer@the-smiths.com": ["editor"],
+    "beth@the-smiths.com": ["viewer"],
+    "jerry@the-smiths.com": ["viewer"]
+  },
+  "todos": {
+    "7240d0db-8ff0-41ec-98b2-34a096273b9e": "morty@the-citadel.com",
+    "7240d0db-8ff0-41ec-98b2-34a096273b9f": "rick@the-citadel.com"
+  },
+  "rules": {
+    "can_read_user": "any directory user",
+    "can_read_todos": "any directory user",
+    "can_create_todo": "roles intersect {admin, editor}",
+    "can_update_todo": "evil_genius, or an editor who owns the todo",
+    "can_delete_todo": "admin, or an editor who owns the todo"
+  },
+  "single": [
+    {
+      "name": "read_todos__rick",
+      "rule": "read: any directory user",
+      "request": {
+        "subject": { "type": "user", "id": "rick@the-citadel.com" },
+        "action": { "name": "can_read_todos" },
+        "resource": { "type": "todo", "id": "todo-1" }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "read_todos__morty",
+      "rule": "read: any directory user",
+      "request": {
+        "subject": { "type": "user", "id": "morty@the-citadel.com" },
+        "action": { "name": "can_read_todos" },
+        "resource": { "type": "todo", "id": "todo-1" }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "read_todos__summer",
+      "rule": "read: any directory user",
+      "request": {
+        "subject": { "type": "user", "id": "summer@the-smiths.com" },
+        "action": { "name": "can_read_todos" },
+        "resource": { "type": "todo", "id": "todo-1" }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "read_todos__beth",
+      "rule": "read: any directory user (viewer)",
+      "request": {
+        "subject": { "type": "user", "id": "beth@the-smiths.com" },
+        "action": { "name": "can_read_todos" },
+        "resource": { "type": "todo", "id": "todo-1" }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "read_todos__jerry",
+      "rule": "read: any directory user (viewer)",
+      "request": {
+        "subject": { "type": "user", "id": "jerry@the-smiths.com" },
+        "action": { "name": "can_read_todos" },
+        "resource": { "type": "todo", "id": "todo-1" }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "read_user__beth_reads_rick",
+      "rule": "read_user: any directory user (viewer reads owner info)",
+      "request": {
+        "subject": { "type": "user", "id": "beth@the-smiths.com" },
+        "action": { "name": "can_read_user" },
+        "resource": { "type": "user", "id": "rick@the-citadel.com" }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "read_user__morty_reads_rick",
+      "rule": "read_user: any directory user (editor)",
+      "request": {
+        "subject": { "type": "user", "id": "morty@the-citadel.com" },
+        "action": { "name": "can_read_user" },
+        "resource": { "type": "user", "id": "rick@the-citadel.com" }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "create_todo__rick",
+      "rule": "create: admin|editor (admin)",
+      "request": {
+        "subject": { "type": "user", "id": "rick@the-citadel.com" },
+        "action": { "name": "can_create_todo" },
+        "resource": { "type": "todo", "id": "new-todo" }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "create_todo__morty",
+      "rule": "create: admin|editor (editor)",
+      "request": {
+        "subject": { "type": "user", "id": "morty@the-citadel.com" },
+        "action": { "name": "can_create_todo" },
+        "resource": { "type": "todo", "id": "new-todo" }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "create_todo__summer",
+      "rule": "create: admin|editor (editor)",
+      "request": {
+        "subject": { "type": "user", "id": "summer@the-smiths.com" },
+        "action": { "name": "can_create_todo" },
+        "resource": { "type": "todo", "id": "new-todo" }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "create_todo__beth",
+      "rule": "create: viewer cannot create",
+      "request": {
+        "subject": { "type": "user", "id": "beth@the-smiths.com" },
+        "action": { "name": "can_create_todo" },
+        "resource": { "type": "todo", "id": "new-todo" }
+      },
+      "expected_decision": false,
+      "expected_verdict": "block"
+    },
+    {
+      "name": "create_todo__jerry",
+      "rule": "create: viewer cannot create",
+      "request": {
+        "subject": { "type": "user", "id": "jerry@the-smiths.com" },
+        "action": { "name": "can_create_todo" },
+        "resource": { "type": "todo", "id": "new-todo" }
+      },
+      "expected_decision": false,
+      "expected_verdict": "block"
+    },
+    {
+      "name": "update_todo__rick__owner_morty",
+      "rule": "update: evil_genius updates any todo",
+      "request": {
+        "subject": { "type": "user", "id": "rick@the-citadel.com" },
+        "action": { "name": "can_update_todo" },
+        "resource": {
+          "type": "todo",
+          "id": "7240d0db-8ff0-41ec-98b2-34a096273b9e",
+          "properties": { "ownerID": "morty@the-citadel.com" }
+        }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "update_todo__morty__owner_morty",
+      "rule": "update: editor updates own todo",
+      "request": {
+        "subject": { "type": "user", "id": "morty@the-citadel.com" },
+        "action": { "name": "can_update_todo" },
+        "resource": {
+          "type": "todo",
+          "id": "7240d0db-8ff0-41ec-98b2-34a096273b9e",
+          "properties": { "ownerID": "morty@the-citadel.com" }
+        }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "update_todo__summer__owner_morty",
+      "rule": "update: editor cannot update another's todo",
+      "request": {
+        "subject": { "type": "user", "id": "summer@the-smiths.com" },
+        "action": { "name": "can_update_todo" },
+        "resource": {
+          "type": "todo",
+          "id": "7240d0db-8ff0-41ec-98b2-34a096273b9e",
+          "properties": { "ownerID": "morty@the-citadel.com" }
+        }
+      },
+      "expected_decision": false,
+      "expected_verdict": "block"
+    },
+    {
+      "name": "update_todo__beth__owner_morty",
+      "rule": "update: viewer cannot update",
+      "request": {
+        "subject": { "type": "user", "id": "beth@the-smiths.com" },
+        "action": { "name": "can_update_todo" },
+        "resource": {
+          "type": "todo",
+          "id": "7240d0db-8ff0-41ec-98b2-34a096273b9e",
+          "properties": { "ownerID": "morty@the-citadel.com" }
+        }
+      },
+      "expected_decision": false,
+      "expected_verdict": "block"
+    },
+    {
+      "name": "update_todo__jerry__owner_morty",
+      "rule": "update: viewer cannot update",
+      "request": {
+        "subject": { "type": "user", "id": "jerry@the-smiths.com" },
+        "action": { "name": "can_update_todo" },
+        "resource": {
+          "type": "todo",
+          "id": "7240d0db-8ff0-41ec-98b2-34a096273b9e",
+          "properties": { "ownerID": "morty@the-citadel.com" }
+        }
+      },
+      "expected_decision": false,
+      "expected_verdict": "block"
+    },
+    {
+      "name": "update_todo__rick__owner_rick",
+      "rule": "update: evil_genius (and owner) updates own todo",
+      "request": {
+        "subject": { "type": "user", "id": "rick@the-citadel.com" },
+        "action": { "name": "can_update_todo" },
+        "resource": {
+          "type": "todo",
+          "id": "7240d0db-8ff0-41ec-98b2-34a096273b9f",
+          "properties": { "ownerID": "rick@the-citadel.com" }
+        }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "update_todo__morty__owner_rick",
+      "rule": "update: editor cannot update another's todo (canonical interop example)",
+      "request": {
+        "subject": { "type": "user", "id": "morty@the-citadel.com" },
+        "action": { "name": "can_update_todo" },
+        "resource": {
+          "type": "todo",
+          "id": "7240d0db-8ff0-41ec-98b2-34a096273b9f",
+          "properties": { "ownerID": "rick@the-citadel.com" }
+        }
+      },
+      "expected_decision": false,
+      "expected_verdict": "block"
+    },
+    {
+      "name": "delete_todo__rick__owner_morty",
+      "rule": "delete: admin deletes any todo",
+      "request": {
+        "subject": { "type": "user", "id": "rick@the-citadel.com" },
+        "action": { "name": "can_delete_todo" },
+        "resource": {
+          "type": "todo",
+          "id": "7240d0db-8ff0-41ec-98b2-34a096273b9e",
+          "properties": { "ownerID": "morty@the-citadel.com" }
+        }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "delete_todo__morty__owner_morty",
+      "rule": "delete: editor deletes own todo",
+      "request": {
+        "subject": { "type": "user", "id": "morty@the-citadel.com" },
+        "action": { "name": "can_delete_todo" },
+        "resource": {
+          "type": "todo",
+          "id": "7240d0db-8ff0-41ec-98b2-34a096273b9e",
+          "properties": { "ownerID": "morty@the-citadel.com" }
+        }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    },
+    {
+      "name": "delete_todo__summer__owner_morty",
+      "rule": "delete: editor cannot delete another's todo",
+      "request": {
+        "subject": { "type": "user", "id": "summer@the-smiths.com" },
+        "action": { "name": "can_delete_todo" },
+        "resource": {
+          "type": "todo",
+          "id": "7240d0db-8ff0-41ec-98b2-34a096273b9e",
+          "properties": { "ownerID": "morty@the-citadel.com" }
+        }
+      },
+      "expected_decision": false,
+      "expected_verdict": "block"
+    },
+    {
+      "name": "delete_todo__beth__owner_morty",
+      "rule": "delete: viewer cannot delete",
+      "request": {
+        "subject": { "type": "user", "id": "beth@the-smiths.com" },
+        "action": { "name": "can_delete_todo" },
+        "resource": {
+          "type": "todo",
+          "id": "7240d0db-8ff0-41ec-98b2-34a096273b9e",
+          "properties": { "ownerID": "morty@the-citadel.com" }
+        }
+      },
+      "expected_decision": false,
+      "expected_verdict": "block"
+    },
+    {
+      "name": "delete_todo__jerry__owner_morty",
+      "rule": "delete: viewer cannot delete",
+      "request": {
+        "subject": { "type": "user", "id": "jerry@the-smiths.com" },
+        "action": { "name": "can_delete_todo" },
+        "resource": {
+          "type": "todo",
+          "id": "7240d0db-8ff0-41ec-98b2-34a096273b9e",
+          "properties": { "ownerID": "morty@the-citadel.com" }
+        }
+      },
+      "expected_decision": false,
+      "expected_verdict": "block"
+    },
+    {
+      "name": "delete_todo__morty__owner_rick",
+      "rule": "delete: editor cannot delete another's todo",
+      "request": {
+        "subject": { "type": "user", "id": "morty@the-citadel.com" },
+        "action": { "name": "can_delete_todo" },
+        "resource": {
+          "type": "todo",
+          "id": "7240d0db-8ff0-41ec-98b2-34a096273b9f",
+          "properties": { "ownerID": "rick@the-citadel.com" }
+        }
+      },
+      "expected_decision": false,
+      "expected_verdict": "block"
+    },
+    {
+      "name": "delete_todo__rick__owner_rick",
+      "rule": "delete: admin deletes any todo (own)",
+      "request": {
+        "subject": { "type": "user", "id": "rick@the-citadel.com" },
+        "action": { "name": "can_delete_todo" },
+        "resource": {
+          "type": "todo",
+          "id": "7240d0db-8ff0-41ec-98b2-34a096273b9f",
+          "properties": { "ownerID": "rick@the-citadel.com" }
+        }
+      },
+      "expected_decision": true,
+      "expected_verdict": "allow"
+    }
+  ],
+  "batch": [
+    {
+      "name": "spec_batch__morty_update_mixed",
+      "rule": "canonical interop batch: editor updating another's then own todo; mixed result blocks the plan",
+      "request": {
+        "subject": { "type": "user", "id": "morty@the-citadel.com" },
+        "action": { "name": "can_update_todo" },
+        "options": { "evaluations_semantic": "execute_all" },
+        "evaluations": [
+          {
+            "resource": {
+              "type": "todo",
+              "id": "7240d0db-8ff0-41ec-98b2-34a096273b9f",
+              "properties": { "ownerID": "rick@the-citadel.com" }
+            }
+          },
+          {
+            "resource": {
+              "type": "todo",
+              "id": "7240d0db-8ff0-41ec-98b2-34a096273b9e",
+              "properties": { "ownerID": "morty@the-citadel.com" }
+            }
+          }
+        ]
+      },
+      "response": {
+        "evaluations": [{ "decision": false }, { "decision": true }]
+      },
+      "expected_decisions": [false, true],
+      "expected_verdict": "block"
+    },
+    {
+      "name": "batch__rick_read_todos_all_allow",
+      "rule": "read is universal; an all-allow plan is authorised",
+      "request": {
+        "subject": { "type": "user", "id": "rick@the-citadel.com" },
+        "action": { "name": "can_read_todos" },
+        "evaluations": [
+          { "resource": { "type": "todo", "id": "todo-1" } },
+          { "resource": { "type": "todo", "id": "todo-2" } },
+          { "resource": { "type": "todo", "id": "todo-3" } }
+        ]
+      },
+      "response": {
+        "evaluations": [{ "decision": true }, { "decision": true }, { "decision": true }]
+      },
+      "expected_decisions": [true, true, true],
+      "expected_verdict": "allow"
+    }
+  ]
+}
