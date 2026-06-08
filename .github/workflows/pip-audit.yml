@@ -3,6 +3,8 @@
 # CodeQL workflows, this needs nothing special and runs now (including while the repo is
 # private) — it is real scanning, not a vanity badge. The weekly run catches CVEs disclosed
 # after a dependency was last touched.
+#
+# Actions are pinned by commit SHA (Dependabot keeps them current via the version comment).
 name: pip-audit
 
 on:
@@ -21,12 +23,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
 
@@ -41,6 +43,6 @@ jobs:
           pip freeze --exclude authzen-llamafirewall-scanner > requirements-audit.txt
 
       - name: Audit dependencies
-        uses: pypa/gh-action-pip-audit@v1
+        uses: pypa/gh-action-pip-audit@1220774d901786e6f652ae159f7b6bc8fea6d266 # v1.1.0
         with:
           inputs: requirements-audit.txt
