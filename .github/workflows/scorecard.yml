@@ -1,0 +1,48 @@
+# OpenSSF Scorecard — automated supply-chain security posture, published to the public
+# Scorecard API so the README badge and https://scorecard.dev/viewer reflect a live score.
+#
+# Staged: the public Scorecard API only ingests PUBLIC repos, and the action can only
+# publish from a public repo (or a private repo with GitHub Advanced Security). The job is
+# gated on repository visibility so it skips cleanly while this repo is private and starts
+# producing a score automatically once it is made public.
+#
+# Actions are pinned by commit SHA (Dependabot keeps them current via the version comment).
+name: Scorecard
+
+on:
+  push:
+    branches: ["main"]
+  branch_protection_rule:
+  schedule:
+    - cron: "30 1 * * 6" # weekly, Saturday 01:30 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    if: ${{ github.event.repository.visibility == 'public' }}
+    permissions:
+      contents: read
+      security-events: write # upload the SARIF result to code scanning
+      id-token: write # OIDC token required by publish_results
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publishes results to the public OSSF API so the badge + viewer populate. Free.
+          publish_results: true
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: results.sarif
