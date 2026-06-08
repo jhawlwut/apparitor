@@ -32,6 +32,12 @@ _TYPE_MAP = {"agent": "Agent", "tool": "Tool"}
 # an error and fail closed.
 _ALLOW_EXIT = 0
 
+# Batch bounds: a multi-tool-call message is small, so cap the entry count and the request
+# body. Each entry forks a `cedar` process, so an unbounded array/body is a fork/memory
+# amplification lever for an unauthenticated caller. Generous for the scanner's real use.
+_MAX_BATCH = 100
+_MAX_BODY_BYTES = 1 << 20  # 1 MiB
+
 
 def _entity_uid(kind: str, identifier: str) -> str:
     # A double-quote would produce a malformed Cedar UID (Agent::"foo"bar"). Reject it
@@ -85,6 +91,20 @@ class CedarEvaluator:
         return result.returncode == _ALLOW_EXIT
 
 
+def _merge_item(item: dict[str, Any], defaults: dict[str, Any]) -> dict[str, Any]:
+    """Overlay one batch ``evaluations`` entry on the request-level defaults.
+
+    Per AuthZEN, top-level ``subject``/``action``/``resource``/``context`` are defaults that
+    each entry may override. Keyed on membership, not truthiness, so an explicit empty/null
+    override (e.g. ``resource: {}``) is honored rather than silently replaced by the default
+    — which would otherwise let a default ALLOW tuple stand in for a field the entry cleared.
+    """
+    return {
+        key: item[key] if key in item else defaults.get(key)
+        for key in ("subject", "action", "resource", "context")
+    }
+
+
 def make_handler(evaluator: CedarEvaluator) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args: object) -> None:  # quiet by default
@@ -98,6 +118,15 @@ def make_handler(evaluator: CedarEvaluator) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(data)
 
+        def _read_body(self) -> dict[str, Any]:
+            length = int(self.headers.get("Content-Length", 0))
+            if length < 0:
+                # A negative length would make read(-1) drain to EOF, bypassing the cap.
+                raise ValueError("invalid Content-Length")
+            if length > _MAX_BODY_BYTES:
+                raise ValueError("request body too large")
+            return json.loads(self.rfile.read(length) or b"{}")
+
         def do_GET(self) -> None:
             if self.path.rstrip("/") == "/healthz":
                 self._send({"status": "ok"})
@@ -105,13 +134,17 @@ def make_handler(evaluator: CedarEvaluator) -> type[BaseHTTPRequestHandler]:
                 self._send({"error": "not found"}, status=404)
 
         def do_POST(self) -> None:
-            if self.path.rstrip("/") != "/access/v1/evaluation":
+            path = self.path.rstrip("/")
+            if path == "/access/v1/evaluation":
+                self._evaluate_one()
+            elif path == "/access/v1/evaluations":
+                self._evaluate_batch()
+            else:
                 self._send({"error": "not found"}, status=404)
-                return
+
+        def _evaluate_one(self) -> None:
             try:
-                length = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(length) or b"{}")
-                decision = evaluator.decide(body)
+                decision = evaluator.decide(self._read_body())
             except ValueError as exc:
                 self._send({"error": str(exc)}, status=400)
             except Exception:
@@ -119,6 +152,39 @@ def make_handler(evaluator: CedarEvaluator) -> type[BaseHTTPRequestHandler]:
                 self._send({"decision": False})
             else:
                 self._send({"decision": decision})
+
+        def _evaluate_batch(self) -> None:
+            try:
+                body = self._read_body()
+            except ValueError as exc:
+                self._send({"error": str(exc)}, status=400)
+                return
+            if not isinstance(body, dict):
+                self._send({"error": "request body must be a JSON object"}, status=400)
+                return
+            items = body.get("evaluations")
+            if not isinstance(items, list):
+                self._send({"error": "'evaluations' must be a list"}, status=400)
+                return
+            if len(items) > _MAX_BATCH:
+                self._send({"error": "too many evaluations"}, status=413)
+                return
+            # Evaluate each entry independently and fail closed per entry, so one malformed
+            # or denied call can never become an allow. A non-dict entry is malformed: it must
+            # NOT inherit the request-level defaults (that could turn garbage into an allow),
+            # so it denies outright. Order and length mirror the request, which is what the
+            # scanner's execute_all aggregation expects.
+            results = []
+            for item in items:
+                if not isinstance(item, dict):
+                    results.append({"decision": False})
+                    continue
+                try:
+                    decision = evaluator.decide(_merge_item(item, body))
+                except Exception:
+                    decision = False
+                results.append({"decision": decision})
+            self._send({"evaluations": results})
 
     return Handler
 
