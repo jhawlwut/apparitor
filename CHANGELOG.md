@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Docker-free OpenFGA integration backend.** Set `APPARITOR_OPENFGA_NATIVE=1` to run the
+  OpenFGA E2E against a pinned, **SHA-256-verified** OpenFGA release binary launched directly
+  (only `github.com` egress needed) instead of a container, so the real-PDP test works where
+  the Docker registry is unreachable. Same vendored model + tuples and assertions; a
+  `workflow_dispatch` `integration-native` CI job exercises it.
 - **Working scan pipeline (M1).** `AuthZENScanner.scan()` authorizes an agent's tool
   calls end-to-end: extract → map → evaluate → decide.
 - LlamaFirewall-free `AuthorizationEngine` holding all logic, so the pipeline is fully

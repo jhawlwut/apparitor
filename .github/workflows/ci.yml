@@ -143,3 +143,23 @@ jobs:
         # integration-only run (a handful of e2e tests can't hit 90%); the unit `test`
         # job owns that gate. Same treatment as the `scanner` job.
         run: pytest -m integration --no-cov
+
+  # Real OpenFGA E2E without Docker: runs a pinned, SHA-256-verified OpenFGA release binary
+  # directly (only github.com egress needed), so the integration test works where the Docker
+  # registry is unreachable. Manual dispatch like `integration`, so it stays off the merge gate.
+  integration-native:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      # No Docker or testcontainers — the native backend fetches the pinned binary with the
+      # stdlib and talks to it with httpx, both already covered by the base + [dev] install.
+      - run: pip install -e ".[dev]"
+      - name: Pytest (OpenFGA integration via native binary)
+        env:
+          APPARITOR_OPENFGA_NATIVE: "1"
+        run: pytest tests/integration/test_openfga.py -m integration --no-cov
