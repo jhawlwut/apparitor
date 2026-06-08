@@ -55,6 +55,7 @@ jobs:
   # run has no tag/release to attach to. Uses the first-party `gh` CLI (no extra action
   # dependency) with the minimum `contents: write` scope, isolated to this job.
   release-assets:
+    name: Attach SBOM to Release
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
