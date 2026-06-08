@@ -37,10 +37,29 @@ JSON
 
 allowed=$(evaluate send_email)
 denied=$(evaluate delete_database)
-echo "send_email     -> $allowed (expect true)"
+echo "send_email      -> $allowed (expect true)"
 echo "delete_database -> $denied (expect false)"
 
-if [ "$allowed" = "true" ] && [ "$denied" = "false" ]; then
+# Batch endpoint: top-level subject/action are defaults; each entry overrides the resource.
+evaluate_batch() {
+  curl -sf "$API/access/v1/evaluations" -d "$(
+    cat <<JSON
+{ "subject": {"type": "agent", "id": "demo-agent"},
+  "action": {"name": "tool_call.execute"},
+  "evaluations": [ {"resource": {"type": "tool", "id": "$1"}},
+                   {"resource": {"type": "tool", "id": "$2"}} ],
+  "options": {"evaluations_semantic": "execute_all"} }
+JSON
+  )" | jq -r '[.evaluations[].decision] | join(",")'
+}
+
+batch_ok=$(evaluate_batch send_email read_file)
+batch_mixed=$(evaluate_batch send_email delete_database)
+echo "batch [send_email, read_file]       -> $batch_ok (expect true,true)"
+echo "batch [send_email, delete_database] -> $batch_mixed (expect true,false)"
+
+if [ "$allowed" = "true" ] && [ "$denied" = "false" ] &&
+  [ "$batch_ok" = "true,true" ] && [ "$batch_mixed" = "true,false" ]; then
   echo "SMOKE OK"
 else
   echo "SMOKE FAILED" >&2
