@@ -24,7 +24,9 @@ pytestmark = [pytest.mark.integration, pytest.mark.docker]
 
 DockerContainer = pytest.importorskip("testcontainers.core.container").DockerContainer
 
-_IMAGE = "openfga/openfga:v1.15.0"
+# Pinned by digest (tag v1.15.0) for reproducibility. The bare name@sha256 form is what the
+# testcontainers/docker-py pull path resolves cleanly (a tag+digest ref confuses it).
+_IMAGE = "openfga/openfga@sha256:5cd70f1f71e17124e8213c0e35c4a453e39e25f6365a0baf700f06584a04e7e8"
 _EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "openfga"
 
 
