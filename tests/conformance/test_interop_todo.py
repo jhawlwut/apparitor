@@ -39,7 +39,7 @@ _DIRECTORY: dict[str, list[str]] = _DATA["directory"]
 
 
 def _ids(cases: list[dict[str, Any]]) -> list[str]:
-    """Use each case's ``name`` as its pytest parametrization id."""
+    """Name each parametrized case by its ``name`` so a failure points to the case, not case0/1."""
     return [c["name"] for c in cases]
 
 
@@ -70,7 +70,7 @@ def _decide(action: str, subject_id: str, owner: str | None) -> bool:
 
 @pytest.mark.parametrize("case", _DATA["single"], ids=_ids(_DATA["single"]))
 def test_single_decision_matches_documented_rules(case: dict[str, Any]) -> None:
-    """The re-derived decision matches the case's documented decision and verdict."""
+    """Re-derivation from the rules guards against a mislabeled ``expected_decision`` cell."""
     req = case["request"]
     derived = _decide(req["action"]["name"], req["subject"]["id"], _owner(req["resource"]))
     assert derived is case["expected_decision"]
@@ -103,7 +103,7 @@ async def test_single_wire_conformance(
 
 @pytest.mark.parametrize("case", _DATA["batch"], ids=_ids(_DATA["batch"]))
 def test_batch_decisions_match_documented_rules(case: dict[str, Any]) -> None:
-    """Each evaluation's re-derived decision and the aggregate match the documented values."""
+    """Both the per-evaluation decisions and the all-allow-or-block aggregate must hold."""
     request = case["request"]
     subject_id = request["subject"]["id"]
     action = request["action"]["name"]
