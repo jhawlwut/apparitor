@@ -40,6 +40,21 @@ It serves both AuthZEN endpoints: single `POST /access/v1/evaluation` and batch
 multi-tool-call message in one request; each entry is evaluated independently and fails
 closed, so under `execute_all` the message is allowed only if every call is permitted.
 
+## Performance (and why it isn't tuned)
+
+The gateway forks the `cedar` CLI once per decision and evaluates batch entries
+**sequentially**, re-reading the vendored policies and entities each time — so an
+N-tool-call batch costs roughly N serial `cedar` invocations. This is deliberate, not an
+oversight: sequential forks plus the `_MAX_BATCH` cap bound how many `cedar` processes an
+unauthenticated caller can spawn at once, so the shim can't become a fork-amplification
+lever. Don't "optimise" it into a thread pool without first adding a **global** concurrency
+cap and container CPU/memory limits, or you reopen that denial-of-service surface.
+
+It's example glue to show the scanner speaks AuthZEN to Cedar — not a latency-tuned PDP.
+The scanner protects itself regardless: a slow PDP trips its `request_budget_s` and
+fails closed rather than stalling the agent. For real throughput, run Cedar behind a
+long-lived service (e.g. in-process bindings) that owns its own concurrency and limits.
+
 ## Run
 
 Requires Docker, `curl`, and `jq`. The first run builds the Cedar CLI from source
