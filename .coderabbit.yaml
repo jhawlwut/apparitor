@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+# This project deliberately avoids obvious docstrings — comments and docstrings explain
+# *why*, not *what* (see AGENTS.md, "Don't ship AI slop"). CodeRabbit's docstring-coverage
+# pre-merge check conflicts with that house style, so it is turned off here. Everything else
+# (the code review itself, other pre-merge checks) stays at CodeRabbit's defaults.
+reviews:
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
