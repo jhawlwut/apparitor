@@ -39,10 +39,12 @@ _DIRECTORY: dict[str, list[str]] = _DATA["directory"]
 
 
 def _ids(cases: list[dict[str, Any]]) -> list[str]:
+    """Use each case's ``name`` as its pytest parametrization id."""
     return [c["name"] for c in cases]
 
 
 def _owner(resource: dict[str, Any]) -> str | None:
+    """Return a todo's ``ownerID`` (the ABAC attribute the ownership rules key on), if any."""
     return resource.get("properties", {}).get("ownerID")
 
 
@@ -68,6 +70,7 @@ def _decide(action: str, subject_id: str, owner: str | None) -> bool:
 
 @pytest.mark.parametrize("case", _DATA["single"], ids=_ids(_DATA["single"]))
 def test_single_decision_matches_documented_rules(case: dict[str, Any]) -> None:
+    """The re-derived decision matches the case's documented decision and verdict."""
     req = case["request"]
     derived = _decide(req["action"]["name"], req["subject"]["id"], _owner(req["resource"]))
     assert derived is case["expected_decision"]
@@ -79,6 +82,7 @@ def test_single_decision_matches_documented_rules(case: dict[str, Any]) -> None:
 async def test_single_wire_conformance(
     case: dict[str, Any], make_config, noop_sleep, respx_mock
 ) -> None:
+    """The interop request serialises with spec field names and maps to the right verdict."""
     request = case["request"]
     req = EvaluationRequest.model_validate(request)  # canonical interop shape is accepted
 
@@ -99,6 +103,7 @@ async def test_single_wire_conformance(
 
 @pytest.mark.parametrize("case", _DATA["batch"], ids=_ids(_DATA["batch"]))
 def test_batch_decisions_match_documented_rules(case: dict[str, Any]) -> None:
+    """Each evaluation's re-derived decision and the aggregate match the documented values."""
     request = case["request"]
     subject_id = request["subject"]["id"]
     action = request["action"]["name"]
@@ -112,6 +117,7 @@ def test_batch_decisions_match_documented_rules(case: dict[str, Any]) -> None:
 async def test_batch_wire_conformance(
     case: dict[str, Any], make_config, noop_sleep, respx_mock
 ) -> None:
+    """A batch request serialises (incl. evaluations_semantic) and aggregates correctly."""
     request = case["request"]
     req = BatchEvaluationRequest.model_validate(request)
 
@@ -136,6 +142,7 @@ async def test_batch_wire_conformance(
 async def test_batch_short_array_fails_closed(
     case: dict[str, Any], make_config, noop_sleep, respx_mock
 ) -> None:
+    """A short PDP response array fails closed — the plan BLOCKs, never a partial allow."""
     req = BatchEvaluationRequest.model_validate(case["request"])
 
     respx_mock.post(_BATCH_URL).respond(json=case["response"])
