@@ -12,9 +12,13 @@ live in [`.claude/skills/`](.claude/skills/).
 
 ## What this project is
 
-An Apache-2.0 AuthZEN 1.0 authorization scanner plugin for Meta's LlamaFirewall. It
-authorizes agent tool calls against any AuthZEN PDP. Public standards only — no
-proprietary or confidential material, ever.
+`apparitor` is an Apache-2.0, vendor-neutral authorization layer for AI agents: it
+authorizes an agent's tool calls against a policy engine and maps the verdict onto an
+agentic firewall's allow / block / human-review model. Policy engines are reached over the
+AuthZEN 1.0 interop standard today (OpenFGA, Cedar, OPA/Rego, …). The shipping firewall
+integration is a LlamaFirewall scanner; a NeMo Guardrails rail and native (non-AuthZEN)
+policy-engine adapters are planned — see [`ROADMAP.md`](ROADMAP.md). Public standards only
+— no proprietary or confidential material, ever.
 
 ## Commands (the gate)
 

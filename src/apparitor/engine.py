@@ -3,7 +3,7 @@
 This holds all the logic (extract → map → evaluate → decide), operating only on plain
 ``list[dict]`` tool calls and producing an internal :class:`VerdictResult`. Keeping it
 free of LlamaFirewall makes the entire pipeline unit-testable with ``respx`` and no ML
-stack; :class:`~authzen_llamafirewall.scanner.AuthZENScanner` is a thin adapter that
+stack; :class:`~apparitor.scanner.AuthZENScanner` is a thin adapter that
 converts the verdict into a LlamaFirewall ``ScanResult`` at the boundary.
 """
 
@@ -45,7 +45,7 @@ _ALLOW_REASON = "authorized by policy"
 _DENY_REASON = "blocked by authorization policy"
 _SKIP_REASON = "no tool call to authorize"
 
-logger = logging.getLogger("authzen_llamafirewall")
+logger = logging.getLogger("apparitor")
 
 
 class AuthorizationEngine:

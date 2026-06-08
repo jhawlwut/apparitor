@@ -5,10 +5,10 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from authzen_llamafirewall.client import AuthZENClient
-from authzen_llamafirewall.config import OnError
-from authzen_llamafirewall.decision import Verdict, VerdictStatus
-from authzen_llamafirewall.engine import AuthorizationEngine
+from apparitor.client import AuthZENClient
+from apparitor.config import OnError
+from apparitor.decision import Verdict, VerdictStatus
+from apparitor.engine import AuthorizationEngine
 
 pytestmark = pytest.mark.unit
 

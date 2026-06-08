@@ -7,14 +7,14 @@ ALLOW / BLOCK / HUMAN_IN_THE_LOOP model.
 
 Import layout (deliberate):
 
-* :mod:`authzen_llamafirewall.models`, ``client``, ``adapters``, ``mapping``,
+* :mod:`apparitor.models`, ``client``, ``adapters``, ``mapping``,
   ``cache``, ``config`` and ``errors`` are **LlamaFirewall-free** — importable and
   unit-testable without the (heavy) LlamaFirewall ML stack installed.
-* :class:`authzen_llamafirewall.AuthZENScanner` lives in
-  :mod:`authzen_llamafirewall.scanner`, which **requires** ``llamafirewall``. It is
-  exposed lazily (PEP 562 ``__getattr__``) so that ``import authzen_llamafirewall``
+* :class:`apparitor.AuthZENScanner` lives in
+  :mod:`apparitor.scanner`, which **requires** ``llamafirewall``. It is
+  exposed lazily (PEP 562 ``__getattr__``) so that ``import apparitor``
   succeeds even when LlamaFirewall is not installed; accessing the scanner without it
-  raises :class:`~authzen_llamafirewall.errors.MissingDependencyError`.
+  raises :class:`~apparitor.errors.MissingDependencyError`.
 """
 
 from __future__ import annotations
@@ -131,7 +131,7 @@ def __getattr__(name: str) -> object:
     """Lazily expose :class:`AuthZENScanner` (PEP 562).
 
     Importing the scanner pulls in LlamaFirewall; doing it lazily keeps a plain
-    ``import authzen_llamafirewall`` working in LlamaFirewall-free environments.
+    ``import apparitor`` working in LlamaFirewall-free environments.
     """
     if name == "AuthZENScanner":
         from .scanner import AuthZENScanner

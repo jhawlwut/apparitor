@@ -105,7 +105,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: sbom
-          path: sbom/authzen-llamafirewall-scanner.cdx.json
+          path: sbom/apparitor.cdx.json
 
   # The scanner's only hard dependency is LlamaFirewall (a heavy ML stack), so its
   # end-to-end test runs in a dedicated job that installs the [llamafirewall] extra.

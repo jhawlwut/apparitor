@@ -52,7 +52,7 @@ def _skip_docker_without_daemon(request: pytest.FixtureRequest, docker_available
 @pytest.fixture
 def make_config():
     """Factory for a test ScannerConfig (mockable http PDP, no real backoff sleeps)."""
-    from authzen_llamafirewall.config import ScannerConfig
+    from apparitor.config import ScannerConfig
 
     def _make(**overrides: Any) -> Any:
         params: dict[str, Any] = {

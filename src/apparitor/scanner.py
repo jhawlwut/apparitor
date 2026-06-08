@@ -2,7 +2,7 @@
 
 This is the **only** module that imports LlamaFirewall. The import is guarded so that
 importing it without ``llamafirewall`` installed yields a clear
-:class:`~authzen_llamafirewall.errors.MissingDependencyError` rather than an opaque
+:class:`~apparitor.errors.MissingDependencyError` rather than an opaque
 ``ImportError``. We import LlamaFirewall's real ``Scanner``/``ScanResult``/``ScanDecision``
 types directly — never re-declared stubs — so returned objects are identity-compatible
 with the LlamaFirewall runtime.
@@ -31,8 +31,8 @@ try:  # pragma: no cover - exercised via import-guard tests
     )
 except ImportError as exc:  # pragma: no cover
     raise MissingDependencyError(
-        "authzen_llamafirewall.scanner requires LlamaFirewall. Install it with:\n"
-        "    pip install 'authzen-llamafirewall-scanner[llamafirewall]'"
+        "apparitor.scanner requires LlamaFirewall. Install it with:\n"
+        "    pip install 'apparitor[llamafirewall]'"
     ) from exc
 
 if TYPE_CHECKING:

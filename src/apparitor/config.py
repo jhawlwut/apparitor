@@ -1,6 +1,6 @@
 """Scanner configuration.
 
-A single pydantic model (consistent with :mod:`authzen_llamafirewall.models`) gives
+A single pydantic model (consistent with :mod:`apparitor.models`) gives
 validation, sane secure defaults, and enum coercion for free. The happy path is a
 single kwarg::
 
@@ -30,7 +30,7 @@ class OnError(str, Enum):
 
 
 class ScannerConfig(BaseModel):
-    """Validated configuration for :class:`~authzen_llamafirewall.AuthZENScanner`."""
+    """Validated configuration for :class:`~apparitor.AuthZENScanner`."""
 
     model_config = ConfigDict(extra="forbid")
 

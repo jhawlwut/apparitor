@@ -15,8 +15,8 @@ class AuthZENError(Exception):
 class MissingDependencyError(AuthZENError):
     """Raised when an optional dependency required for an import path is absent.
 
-    Notably raised by :mod:`authzen_llamafirewall.scanner` when ``llamafirewall``
-    is not installed (install ``authzen-llamafirewall-scanner[llamafirewall]``).
+    Notably raised by :mod:`apparitor.scanner` when ``llamafirewall``
+    is not installed (install ``apparitor[llamafirewall]``).
     """
 
 

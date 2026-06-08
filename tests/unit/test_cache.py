@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from authzen_llamafirewall.cache import DecisionCache, decision_cache_key
-from authzen_llamafirewall.models import Action, EvaluationRequest, Resource, Subject
+from apparitor.cache import DecisionCache, decision_cache_key
+from apparitor.models import Action, EvaluationRequest, Resource, Subject
 
 pytestmark = pytest.mark.unit
 

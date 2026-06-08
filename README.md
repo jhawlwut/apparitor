@@ -1,28 +1,35 @@
-# authzen-llamafirewall-scanner
+# apparitor
 
-[![CI](https://github.com/jhawlwut/authzen-scanner/actions/workflows/ci.yml/badge.svg)](https://github.com/jhawlwut/authzen-scanner/actions/workflows/ci.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/jhawlwut/authzen-scanner/badge)](https://scorecard.dev/viewer/?uri=github.com/jhawlwut/authzen-scanner)
-[![CodeQL](https://github.com/jhawlwut/authzen-scanner/actions/workflows/codeql.yml/badge.svg)](https://github.com/jhawlwut/authzen-scanner/actions/workflows/codeql.yml)
-[![pip-audit](https://github.com/jhawlwut/authzen-scanner/actions/workflows/pip-audit.yml/badge.svg)](https://github.com/jhawlwut/authzen-scanner/actions/workflows/pip-audit.yml)
+[![CI](https://github.com/jhawlwut/apparitor/actions/workflows/ci.yml/badge.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/jhawlwut/apparitor/badge)](https://scorecard.dev/viewer/?uri=github.com/jhawlwut/apparitor)
+[![CodeQL](https://github.com/jhawlwut/apparitor/actions/workflows/codeql.yml/badge.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/codeql.yml)
+[![pip-audit](https://github.com/jhawlwut/apparitor/actions/workflows/pip-audit.yml/badge.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/pip-audit.yml)
 [![Aikido Security](https://img.shields.io/badge/Aikido%20Security-scanned%20daily-4c1?logo=aikido&logoColor=white)](https://app.aikido.dev/repositories/2253820/checks)
 [![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen.svg)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
-**An AuthZEN authorization scanner for [Meta's LlamaFirewall](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall).**
+**A vendor-neutral authorization layer for AI agents.** apparitor connects the agentic
+firewalls teams already run to the authorization policy engines they already trust, so
+every agent action is checked against policy before it executes.
 
-Content-safety guardrails ask *"is this prompt malicious?"* They do **not** ask
-*"is this agent **allowed** to do this?"* This plugin fills that gap: it evaluates an
-agent's tool calls against any [AuthZEN 1.0](https://openid.net/specs/authorization-interop-spec-1_0.html)
-Policy Decision Point (PDP) — OpenFGA, Cedar/AVP, OPA, Cerbos, Topaz — and maps the authorization
-decision back onto LlamaFirewall's `ALLOW` / `BLOCK` / `HUMAN_IN_THE_LOOP` model.
+Agentic firewalls — [Meta's LlamaFirewall](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall),
+[NVIDIA's NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) — ask *"is this input
+or output safe?"* They do **not** ask *"is this agent **allowed** to do this?"* apparitor
+adds that missing axis. It routes each agent tool call to a policy decision point and maps
+the verdict back onto the firewall's `ALLOW` / `BLOCK` / `HUMAN_IN_THE_LOOP` model.
 
-Apache-2.0 licensed. Built entirely on public standards.
+One integration, many policy engines: apparitor speaks the
+[AuthZEN 1.0](https://openid.net/specs/authorization-interop-spec-1_0.html) interop
+standard, so the same wiring reaches the engines you already author policy in —
+**OpenFGA** (Zanzibar / ReBAC), **Cedar** (policy-as-code), and **OPA / Rego** — with no
+policy rewrite. Apache-2.0, built entirely on public standards.
 
-> **Status: `0.0.1a0` — pre-alpha.** The scan pipeline works end-to-end against any
-> AuthZEN PDP (see [`CHANGELOG`](CHANGELOG.md)), with 98% test coverage on the
-> LlamaFirewall-free core. Still pre-alpha: real OpenFGA/Cedar example wiring and
-> conformance tests are pending, and APIs may change. See
+> **Status: `0.0.1a0` — pre-alpha.** **Shipping today:** the LlamaFirewall integration
+> and the AuthZEN evaluation pipeline, working end-to-end against any AuthZEN 1.0 PDP
+> (OpenFGA, Cedar, OPA, Cerbos, Topaz), with 98% test coverage on the firewall-free core
+> (see [`CHANGELOG`](CHANGELOG.md)). **On the roadmap:** a NeMo Guardrails rail and native
+> (non-AuthZEN) adapters for Cedar / OpenFGA / Rego. APIs may change — see
 > [`docs/requirements.md`](docs/requirements.md) for the design and [`ROADMAP`](ROADMAP.md).
 
 ## The gap
@@ -31,7 +38,7 @@ Apache-2.0 licensed. Built entirely on public standards.
 Agent: "Delete the production database"
          │
          ▼
-   LlamaFirewall      → "Is this prompt malicious?"            → PASS (it's not a jailbreak)
+   Agentic firewall   → "Is this prompt malicious?"            → PASS (it's not a jailbreak)
          │
          ▼
    ??? nothing ???    → "Is this agent authorized to do this?" → NO CHECK
@@ -40,27 +47,30 @@ Agent: "Delete the production database"
    Tool executes.  Production database deleted.
 ```
 
-With this scanner in the loop:
+With apparitor in the loop:
 
 ```
 Agent: "Delete the production database"
          │
          ▼
-   LlamaFirewall scanners (PromptGuard, AlignmentCheck, CodeShield, …)   → PASS
+   Firewall safety scanners (PromptGuard, AlignmentCheck, CodeShield, …)   → PASS
          │
          ▼
-   AuthZENAuthorizationScanner ──POST /access/v1/evaluation──▶  AuthZEN PDP (OpenFGA / Cedar / …)
-         │                                                         │
-         │  ◀────────────────── { "decision": false } ────────────┘
+   apparitor ──────────POST /access/v1/evaluation──────▶  Policy engine (OpenFGA / Cedar / OPA / …)
+         │                                                    │
+         │  ◀────────────────── { "decision": false } ────────┘
          ▼
    BLOCK — "agent travel-bot-123 is not authorized for tool_call.execute on database.delete_table"
 ```
 
 ## Quickstart (target API — wiring is ≤10 lines)
 
+apparitor ships today as a LlamaFirewall scanner. Point it at any AuthZEN-compliant policy
+decision point (PDP) and bind it to the assistant role:
+
 ```python
 from llamafirewall import LlamaFirewall, Role
-from authzen_llamafirewall import AuthZENScanner, ScannerConfig
+from apparitor import AuthZENScanner, ScannerConfig
 
 # Point at any AuthZEN-compliant PDP. Secure defaults: fail-closed, TLS-verified.
 # A subject must be resolvable — set config.agent_id, or current_subject per request.
@@ -75,16 +85,16 @@ Per request, resolve the real end user the agent acts for (recommended over a st
 later request that reuses the same task/event loop:
 
 ```python
-from authzen_llamafirewall import Subject, subject_scope
+from apparitor import Subject, subject_scope
 
 with subject_scope(Subject(type="user", id="alice@acme.com")):
     result = await firewall.scan_async(assistant_message)
 ```
 
-The AuthZEN client and models are **LlamaFirewall-free** and usable on their own:
+The AuthZEN client and models are **firewall-free** and usable on their own:
 
 ```python
-from authzen_llamafirewall.models import EvaluationRequest   # no LlamaFirewall needed
+from apparitor.models import EvaluationRequest   # no firewall dependency needed
 ```
 
 ## Observability
@@ -105,23 +115,35 @@ To export, pass your own `MetricsSink` (forward to Prometheus/OpenTelemetry) or
 status, subject id, correlation id, tool names, and an argument *fingerprint*). Raw tool
 arguments and tokens are never logged — arguments are fingerprinted. The subject id is the
 decision principal (it may itself be an identifier such as an email), so treat the
-`authzen_llamafirewall` logger as sensitive and route it accordingly.
+`apparitor` logger as sensitive and route it accordingly.
 
-## PDP support matrix
+## What apparitor connects
 
-| PDP | AuthZEN support | Example |
+**Agentic firewalls** (the agent-side hook apparitor plugs into):
+
+| Firewall | Vendor | Status |
 | --- | --- | --- |
-| **Mock PDP** (testing/demo) | n/a | [`examples/mock_pdp/`](examples/mock_pdp/) |
-| **OpenFGA** (Zanzibar / ReBAC) | native (experimental) | [`examples/openfga/`](examples/openfga/) |
-| **Cedar** (policy-as-code) | via AuthZEN gateway | [`examples/cedar/`](examples/cedar/) |
-| **Amazon Verified Permissions** (managed Cedar) | via [AWS AuthZEN interface](https://github.com/aws-samples/sample-authzen-interface-verified-permissions) | [`examples/avp/`](examples/avp/) |
-| Any AuthZEN 1.0 PDP (OPA, Cerbos, Topaz, …) | by spec | [`docs/setup.md`](docs/setup.md) |
+| [**LlamaFirewall**](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall) | Meta | shipping (`AuthZENScanner`) |
+| [**NeMo Guardrails**](https://github.com/NVIDIA/NeMo-Guardrails) | NVIDIA | planned ([ROADMAP](ROADMAP.md)) |
+
+**Policy engines** (where the authorization decision is made). apparitor reaches these over
+AuthZEN today; native adapters that skip the AuthZEN hop are on the roadmap:
+
+| Engine | Paradigm | How apparitor reaches it | Example |
+| --- | --- | --- | --- |
+| **Mock PDP** (testing/demo) | — | AuthZEN | [`examples/mock_pdp/`](examples/mock_pdp/) |
+| **OpenFGA** | Zanzibar / ReBAC | native AuthZEN (experimental) | [`examples/openfga/`](examples/openfga/) |
+| **Cedar** | policy-as-code (ABAC) | AuthZEN gateway | [`examples/cedar/`](examples/cedar/) |
+| **OPA / Rego** | policy-as-code | AuthZEN ([`opa-authzen`](https://github.com/kanywst/opa-authzen)) | [`docs/setup.md`](docs/setup.md) |
+| **Amazon Verified Permissions** | managed Cedar | [AWS AuthZEN interface](https://github.com/aws-samples/sample-authzen-interface-verified-permissions) | [`examples/avp/`](examples/avp/) |
+| Any AuthZEN 1.0 PDP (Cerbos, Topaz, …) | varies | AuthZEN | [`docs/setup.md`](docs/setup.md) |
 
 ## Documentation
 
 - [Technical requirements & design decisions](docs/requirements.md)
 - [Architecture](docs/architecture.md)
-- [Setup: connecting to a PDP](docs/setup.md)
+- [Setup: connecting to a policy engine](docs/setup.md)
+- [Roadmap](ROADMAP.md)
 - [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 ## License
