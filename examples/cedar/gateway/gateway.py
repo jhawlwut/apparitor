@@ -95,10 +95,12 @@ def _merge_item(item: dict[str, Any], defaults: dict[str, Any]) -> dict[str, Any
     """Overlay one batch ``evaluations`` entry on the request-level defaults.
 
     Per AuthZEN, top-level ``subject``/``action``/``resource``/``context`` are defaults that
-    each entry may override; the entry's own field wins when present.
+    each entry may override. Keyed on membership, not truthiness, so an explicit empty/null
+    override (e.g. ``resource: {}``) is honored rather than silently replaced by the default
+    — which would otherwise let a default ALLOW tuple stand in for a field the entry cleared.
     """
     return {
-        key: item.get(key) or defaults.get(key)
+        key: item[key] if key in item else defaults.get(key)
         for key in ("subject", "action", "resource", "context")
     }
 
@@ -118,6 +120,9 @@ def make_handler(evaluator: CedarEvaluator) -> type[BaseHTTPRequestHandler]:
 
         def _read_body(self) -> dict[str, Any]:
             length = int(self.headers.get("Content-Length", 0))
+            if length < 0:
+                # A negative length would make read(-1) drain to EOF, bypassing the cap.
+                raise ValueError("invalid Content-Length")
             if length > _MAX_BODY_BYTES:
                 raise ValueError("request body too large")
             return json.loads(self.rfile.read(length) or b"{}")
@@ -153,6 +158,9 @@ def make_handler(evaluator: CedarEvaluator) -> type[BaseHTTPRequestHandler]:
                 body = self._read_body()
             except ValueError as exc:
                 self._send({"error": str(exc)}, status=400)
+                return
+            if not isinstance(body, dict):
+                self._send({"error": "request body must be a JSON object"}, status=400)
                 return
             items = body.get("evaluations")
             if not isinstance(items, list):
