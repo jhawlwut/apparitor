@@ -1,7 +1,7 @@
 """Mapping from a normalised tool call to an AuthZEN evaluation request.
 
 A single extensibility seam — :class:`ToolCallMapper` — turns a tool call plus
-request-scoped context into an :class:`~authzen_llamafirewall.models.EvaluationRequest`
+request-scoped context into an :class:`~apparitor.models.EvaluationRequest`
 (or ``None`` to abstain). Subject resolution, resource shaping and context enrichment all
 live behind this one protocol because in practice they read the same request context.
 

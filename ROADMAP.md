@@ -1,9 +1,11 @@
 # Roadmap
 
-Milestone-based plan for the AuthZEN authorization scanner. Each milestone is a
-self-contained, reviewable body of work with explicit deliverables and acceptance
-criteria. The design these milestones implement is specified in
-[`docs/requirements.md`](docs/requirements.md).
+apparitor is a vendor-neutral authorization layer for AI agents: it authorizes an agent's
+tool calls against a policy engine and maps the verdict onto an agentic firewall's
+allow / block / human-review model. The plan below takes it from a single firewall + the
+AuthZEN interop standard to an aggregator across the popular agentic firewalls and policy
+engines. Each milestone is a self-contained, reviewable body of work; the design it
+implements is specified in [`docs/requirements.md`](docs/requirements.md).
 
 Status legend: ✅ done · 🔜 next · 📋 planned.
 
@@ -15,49 +17,36 @@ Status legend: ✅ done · 🔜 next · 📋 planned.
 - Project governance: contributing guide, security policy, contributor/agent
   conventions, issue & PR templates, CI (lint, types, tests, build).
 
-**Acceptance:** `ruff`, `mypy --strict`, `pytest`, and `build`/`twine check` all pass;
-package imports without the LlamaFirewall stack; PDP-name availability confirmed.
-
 ## ✅ M1 — Core evaluation pipeline
 
-- `AuthZENClient.evaluate` (single `POST /access/v1/evaluation`): timeouts, the
-  request budget, bounded retries with backoff, httpx-exception mapping.
+- `AuthZENClient.evaluate` (single `POST /access/v1/evaluation`): timeouts, request
+  budget, bounded retries with backoff, httpx-exception mapping.
 - Default `ToolCallMapper`: subject from request context, resource shaping, argument
   forwarding with redaction/size caps.
-- `AuthZENScanner.scan`: extract → map → evaluate → decide, with the full
-  decision/error tables (fail-closed; `status=ERROR` on the error path).
+- `AuthZENScanner.scan` (the LlamaFirewall integration): extract → map → evaluate →
+  decide, with the full decision/error tables (fail-closed; `status=ERROR` on the error
+  path).
 - A mock PDP and the first unit suite (mapping, models, decision mapping, on-error).
 
-**Acceptance:** an unauthorized tool call returns `BLOCK`, an authorized one `ALLOW`,
-and a PDP outage resolves per `on_error`; ≥90% line+branch coverage on the
-LlamaFirewall-free modules.
+## ✅ M2 — Batch, caching & observability
 
-## 📋 M2 — Batch, caching & observability
-
-- Batch evaluation (`/access/v1/evaluations`) with the `execute_all` aggregation
+- Batch evaluation (`/access/v1/evaluations`) with `execute_all` aggregation
   (all-allow-or-block) for multi-step plan pre-authorization.
 - Opt-in, ALLOW-only TTL decision cache with the full-tuple key and hard TTL ceiling.
 - Structured decision logging (argument fingerprints, token redaction), a latency
-  histogram, and a cache-hit counter.
+  histogram, and cache-hit/miss counters.
 
-**Acceptance:** batch and cache behaviour covered by tests, including the security
-cases (no stale ALLOW past TTL, errors never cached, tokens never logged).
+## ✅ M3 — Policy-engine integrations & conformance
 
-## 📋 M3 — PDP integrations & conformance
-
-- Lead worked examples: **OpenFGA** (native, experimental AuthZEN; relationship-based)
-  and **Cedar** (policy-as-code, via a local AuthZEN gateway) — digest-pinned images,
-  vendored models/policies, smoke scripts. Together they exercise both ReBAC and ABAC
-  over the same AuthZEN API.
+- Worked examples over AuthZEN: **OpenFGA** (native, experimental AuthZEN; ReBAC) and
+  **Cedar** (policy-as-code, via a local AuthZEN gateway) — digest-pinned images, vendored
+  models/policies, smoke scripts. Together they exercise both ReBAC and ABAC over the same
+  AuthZEN API.
 - Integration tests via testcontainers (Docker-gated; skip when absent).
 - Conformance against the vendored OpenID AuthZEN interop decisions dataset.
 
-**Acceptance:** the demo scenarios (deny / out-of-scope / allow / PDP-unreachable /
-batch) run end-to-end against real OpenFGA and Cedar.
-
-A later, cloud-only example covers **Amazon Verified Permissions** (managed Cedar) via
-AWS's AuthZEN interface. OPA (`kanywst/opa-authzen`), Cerbos and Topaz also work and may
-be added as additional examples.
+**Remaining:** the **Amazon Verified Permissions** (managed Cedar) cloud example and the
+end-to-end scenario walk-through (deny / out-of-scope / allow / PDP-unreachable / batch).
 
 ## 📋 M4 — Hardening & first release
 
@@ -69,9 +58,28 @@ be added as additional examples.
 **Acceptance:** a tagged `0.1.0` on PyPI, green release pipeline, no open P0/P1
 security findings.
 
+## Beyond v0.1 — the aggregator
+
+This is where apparitor broadens from "an AuthZEN scanner for LlamaFirewall" into an
+aggregator across the popular agentic firewalls and policy engines.
+
+### 📋 More agentic firewalls
+
+- **NeMo Guardrails** (NVIDIA) rail — bind the same `AuthorizationEngine` behind a NeMo
+  action/rail so a NeMo-guarded agent gets the identical authorization check. The engine is
+  already firewall-free, so this is an adapter, not a re-implementation.
+- Keep the firewall-specific surface thin: only the firewall adapter module may import a
+  firewall SDK; the core stays standalone.
+
+### 📋 Native policy-engine adapters (skip the AuthZEN hop)
+
+- Direct **Cedar**, **OpenFGA**, and **OPA / Rego** adapters for deployments that don't
+  front their engine with an AuthZEN endpoint — talk each engine's own API while keeping the
+  same mapping seam and fail-closed semantics.
+- A pluggable decision-backend interface so a deployment selects its engine by config.
+
 ## Out of scope (tracked, deferred)
 
-These are intentionally excluded from the milestones above and would be tracked
-separately: control-plane decision-log emission, OPA bundle distribution, a NeMo
-Guardrails rail, a Microsoft Agent Governance capability check, and natural-language
+Intentionally excluded for now and tracked separately: control-plane decision-log emission,
+OPA bundle distribution, a Microsoft Agent Governance capability check, and natural-language
 policy authoring.

@@ -13,7 +13,7 @@ pytestmark = pytest.mark.unit
 
 
 def test_package_imports_without_llamafirewall() -> None:
-    pkg = importlib.import_module("authzen_llamafirewall")
+    pkg = importlib.import_module("apparitor")
     assert pkg.__version__
     # Unknown attributes still raise (PEP 562 __getattr__ is well-behaved).
     with pytest.raises(AttributeError):
@@ -22,28 +22,28 @@ def test_package_imports_without_llamafirewall() -> None:
 
 def test_lf_free_submodules_import_standalone() -> None:
     for name in ("models", "client", "adapters", "mapping", "cache", "config", "errors"):
-        importlib.import_module(f"authzen_llamafirewall.{name}")
+        importlib.import_module(f"apparitor.{name}")
 
 
 def test_scanner_without_llamafirewall_raises_missing_dependency() -> None:
-    from authzen_llamafirewall.errors import MissingDependencyError
+    from apparitor.errors import MissingDependencyError
 
     try:
         import llamafirewall  # noqa: F401
     except ImportError:
         with pytest.raises(MissingDependencyError):
-            importlib.import_module("authzen_llamafirewall.scanner")
+            importlib.import_module("apparitor.scanner")
     else:
         # LlamaFirewall is installed; the scanner must import and subclass Scanner.
         from llamafirewall import Scanner
 
-        from authzen_llamafirewall.scanner import AuthZENScanner
+        from apparitor.scanner import AuthZENScanner
 
         assert issubclass(AuthZENScanner, Scanner)
 
 
 def test_single_evaluation_request_roundtrips_spec_json() -> None:
-    from authzen_llamafirewall.models import EvaluationRequest
+    from apparitor.models import EvaluationRequest
 
     body = {
         "subject": {"type": "user", "id": "alice@acme.com"},
@@ -59,7 +59,7 @@ def test_single_evaluation_request_roundtrips_spec_json() -> None:
 def test_response_tolerates_unknown_fields_and_requires_decision() -> None:
     from pydantic import ValidationError
 
-    from authzen_llamafirewall.models import EvaluationResponse
+    from apparitor.models import EvaluationResponse
 
     resp = EvaluationResponse.model_validate(
         {"decision": True, "context": {"id": "0", "reason_user": {"en": "ok"}}, "extra": 1}
@@ -70,7 +70,7 @@ def test_response_tolerates_unknown_fields_and_requires_decision() -> None:
 
 
 def test_batch_uses_spec_literal_semantics() -> None:
-    from authzen_llamafirewall.models import EvaluationSemantic, EvaluationsOptions
+    from apparitor.models import EvaluationSemantic, EvaluationsOptions
 
     assert EvaluationSemantic.DENY_ON_FIRST_DENY.value == "deny_on_first_deny"
     dumped = EvaluationsOptions(
@@ -106,7 +106,7 @@ def test_batch_uses_spec_literal_semantics() -> None:
 def test_adapters_normalize_provider_shapes(
     raw: dict, expected_name: str, expected_args: dict
 ) -> None:
-    from authzen_llamafirewall.adapters import detect_adapter
+    from apparitor.adapters import detect_adapter
 
     adapter = detect_adapter(raw)
     assert adapter is not None
@@ -116,13 +116,13 @@ def test_adapters_normalize_provider_shapes(
 
 
 def test_detect_adapter_returns_none_for_unknown_shape() -> None:
-    from authzen_llamafirewall.adapters import detect_adapter
+    from apparitor.adapters import detect_adapter
 
     assert detect_adapter({"weird": "shape"}) is None
 
 
 def test_mcp_resource_id_is_server_scoped() -> None:
-    from authzen_llamafirewall.mapping import mcp_resource_id
+    from apparitor.mapping import mcp_resource_id
 
     assert mcp_resource_id("files", "read") == "files/read"
 
@@ -130,7 +130,7 @@ def test_mcp_resource_id_is_server_scoped() -> None:
 def test_config_rejects_unknown_fields_and_defaults_fail_closed() -> None:
     from pydantic import ValidationError
 
-    from authzen_llamafirewall.config import OnError, ScannerConfig
+    from apparitor.config import OnError, ScannerConfig
 
     cfg = ScannerConfig(pdp_url="https://pdp.internal")  # type: ignore[arg-type]
     assert cfg.on_error is OnError.DENY

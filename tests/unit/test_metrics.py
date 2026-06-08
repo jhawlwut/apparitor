@@ -7,11 +7,11 @@ import logging
 import httpx
 import pytest
 
-from authzen_llamafirewall.client import AuthZENClient
-from authzen_llamafirewall.config import OnError
-from authzen_llamafirewall.decision import Verdict
-from authzen_llamafirewall.engine import AuthorizationEngine
-from authzen_llamafirewall.metrics import InMemoryMetrics, MetricsSink, NoopMetrics
+from apparitor.client import AuthZENClient
+from apparitor.config import OnError
+from apparitor.decision import Verdict
+from apparitor.engine import AuthorizationEngine
+from apparitor.metrics import InMemoryMetrics, MetricsSink, NoopMetrics
 
 pytestmark = pytest.mark.unit
 
@@ -153,7 +153,7 @@ async def test_all_abstain_records_a_skip_decision_but_no_log(
     # but there are no requests to log.
     metrics = InMemoryMetrics()
     engine = _engine(make_config(), noop_sleep, metrics=metrics, mapper=_AbstainMapper())
-    with caplog.at_level(logging.INFO, logger="authzen_llamafirewall"):
+    with caplog.at_level(logging.INFO, logger="apparitor"):
         await engine.evaluate_tool_calls([make_openai_call("read")])
 
     assert metrics.decisions == {("skip", "skipped"): 1}
@@ -170,7 +170,7 @@ async def test_batch_records_one_decision_and_logs_each_call(
     )
     metrics = InMemoryMetrics()
     engine = _engine(make_config(), noop_sleep, metrics=metrics)
-    with caplog.at_level(logging.INFO, logger="authzen_llamafirewall"):
+    with caplog.at_level(logging.INFO, logger="apparitor"):
         await engine.evaluate_tool_calls([make_openai_call("read"), make_openai_call("write")])
 
     assert metrics.decisions == {("allow", "success"): 1}  # one decision for the message
@@ -184,7 +184,7 @@ async def test_faulty_sink_never_breaks_or_alters_the_decision(
 ) -> None:
     respx_mock.post(_EVAL_URL).respond(json={"decision": True})
     engine = _engine(make_config(), noop_sleep, metrics=_RaisingMetrics())
-    with caplog.at_level(logging.ERROR, logger="authzen_llamafirewall"):
+    with caplog.at_level(logging.ERROR, logger="apparitor"):
         result = await engine.evaluate_tool_calls([make_openai_call("read")])
 
     assert result.verdict is Verdict.ALLOW  # observability failure must not change the verdict
@@ -223,7 +223,7 @@ async def test_structured_decision_log_carries_ids_and_fingerprint(
 ) -> None:
     respx_mock.post(_EVAL_URL).respond(json={"decision": True})
     engine = _engine(make_config(agent_id="bot-123"), noop_sleep)
-    with caplog.at_level(logging.INFO, logger="authzen_llamafirewall"):
+    with caplog.at_level(logging.INFO, logger="apparitor"):
         await engine.evaluate_tool_calls(
             [make_openai_call("read", path="/tmp")],
             request_context={"correlation_id": "corr-9"},

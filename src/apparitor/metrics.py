@@ -6,7 +6,7 @@ into a small :class:`MetricsSink` protocol. The default :class:`InMemoryMetrics`
 Prometheus-shaped counters and a histogram you can scrape or bridge; pass
 :class:`NoopMetrics` to disable, or your own sink to forward to Prometheus/OpenTelemetry.
 
-Like :class:`~authzen_llamafirewall.cache.DecisionCache`, :class:`InMemoryMetrics` targets
+Like :class:`~apparitor.cache.DecisionCache`, :class:`InMemoryMetrics` targets
 single-loop async use within one engine instance and is intentionally lock-free: the record
 methods are synchronous and do no ``await``, so they run to completion atomically on the
 loop. A sink shared across OS threads must provide its own synchronisation.

@@ -43,6 +43,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Renamed to `apparitor` and repositioned.** The project is now a vendor-neutral
+  authorization layer that aggregates policy engines (AuthZEN, Cedar, OpenFGA, Rego) across
+  agentic firewalls (LlamaFirewall today; NeMo Guardrails planned), rather than an
+  AuthZEN-scanner-for-LlamaFirewall only. The Python import package and PyPI distribution
+  are now **`apparitor`** (was `authzen_llamafirewall` / `authzen-llamafirewall-scanner`):
+  `from apparitor import AuthZENScanner`. Breaking import change — acceptable pre-alpha, no
+  published release affected. Public API names (`AuthZENScanner`, `AuthorizationEngine`, …)
+  are unchanged.
 - **Spec fix:** the batch options field is now `evaluations_semantic` (plural), matching
   AuthZEN 1.0; it was previously serialised as `evaluation_semantic`. Renames
   `EvaluationsOptions.evaluation_semantic` → `evaluations_semantic` (pre-alpha, breaking).

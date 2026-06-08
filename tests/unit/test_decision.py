@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from authzen_llamafirewall.config import OnError
-from authzen_llamafirewall.decision import (
+from apparitor.config import OnError
+from apparitor.decision import (
     Verdict,
     VerdictStatus,
     aggregate,
@@ -66,7 +66,7 @@ def test_resolve_error(on_error: OnError, expected: Verdict) -> None:
 
 
 def test_scores() -> None:
-    from authzen_llamafirewall.decision import VerdictResult
+    from apparitor.decision import VerdictResult
 
     assert VerdictResult(Verdict.ALLOW, "x").score == 0.0
     assert VerdictResult(Verdict.BLOCK, "x").score == 1.0

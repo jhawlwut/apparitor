@@ -3,25 +3,27 @@ requires = ["hatchling>=1.21"]
 build-backend = "hatchling.build"
 
 [project]
-name = "authzen-llamafirewall-scanner"
+name = "apparitor"
 dynamic = ["version"]
-description = "AuthZEN 1.0 authorization scanner plugin for Meta's LlamaFirewall — answers \"is this agent allowed to do this?\""
+description = "Vendor-neutral authorization for AI agents — checks agent tool calls against your policy engine (AuthZEN, Cedar, OpenFGA, Rego) from inside agentic firewalls. Answers \"is this agent allowed to do this?\""
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Jonny Hawley" }]
 keywords = [
-  "authzen",
-  "llamafirewall",
   "authorization",
   "ai-agents",
   "agent-security",
-  "pdp",
+  "agentic-firewall",
+  "llamafirewall",
+  "authzen",
   "openfga",
   "cedar",
+  "rego",
   "opa",
   "cerbos",
+  "pdp",
   "mcp",
 ]
 # NOTE: per PEP 639 the license is declared via the SPDX `license` field above,
@@ -41,13 +43,13 @@ classifiers = [
 dependencies = [
   # Core runtime is intentionally LlamaFirewall-free so the AuthZEN client and
   # models are usable/testable standalone. LlamaFirewall is an optional extra
-  # (it pulls a heavy ML stack); only `authzen_llamafirewall.scanner` needs it.
+  # (it pulls a heavy ML stack); only `apparitor.scanner` needs it.
   "httpx>=0.27,<0.29",
   "pydantic>=2.5,<3",
 ]
 
 [project.optional-dependencies]
-# The scanner plugin itself. Importing `authzen_llamafirewall.scanner` without
+# The scanner plugin itself. Importing `apparitor.scanner` without
 # this installed raises a clear MissingDependencyError.
 llamafirewall = ["llamafirewall>=0.0.1"]
 dev = [
@@ -69,17 +71,17 @@ integration = ["testcontainers>=4"]
 sbom = ["cyclonedx-bom==7.3.0"]
 
 [project.urls]
-Homepage = "https://github.com/jhawlwut/authzen-scanner"
-Repository = "https://github.com/jhawlwut/authzen-scanner"
-Issues = "https://github.com/jhawlwut/authzen-scanner/issues"
-Documentation = "https://github.com/jhawlwut/authzen-scanner/tree/main/docs"
-Changelog = "https://github.com/jhawlwut/authzen-scanner/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/jhawlwut/apparitor"
+Repository = "https://github.com/jhawlwut/apparitor"
+Issues = "https://github.com/jhawlwut/apparitor/issues"
+Documentation = "https://github.com/jhawlwut/apparitor/tree/main/docs"
+Changelog = "https://github.com/jhawlwut/apparitor/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
-path = "src/authzen_llamafirewall/__init__.py"
+path = "src/apparitor/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/authzen_llamafirewall"]
+packages = ["src/apparitor"]
 
 [tool.ruff]
 line-length = 100
@@ -105,7 +107,7 @@ asyncio_mode = "strict"
 testpaths = ["tests"]
 # Coverage gate is enforced (90% line+branch). scanner.py is omitted from the default
 # run (it needs LlamaFirewall) and is covered by the `scanner` CI job — see [tool.coverage.run].
-addopts = "-m 'not integration' --strict-markers --cov=authzen_llamafirewall --cov-branch --cov-fail-under=90"
+addopts = "-m 'not integration' --strict-markers --cov=apparitor --cov-branch --cov-fail-under=90"
 markers = [
   "unit: fast, isolated, no network or docker",
   "integration: requires external services; excluded from the default run",
@@ -114,7 +116,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["authzen_llamafirewall"]
+source = ["apparitor"]
 # scanner.py is the only LlamaFirewall-dependent module; it is covered by the separate
 # `scanner` CI job that installs the [llamafirewall] extra, not the default unit run.
 omit = ["*/scanner.py"]

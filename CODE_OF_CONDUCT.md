@@ -11,6 +11,6 @@ other project space — to be respectful, welcoming, and constructive.
 ## Reporting
 
 To raise a concern, open a private report via GitHub Security Advisories
-(<https://github.com/jhawlwut/authzen-scanner/security/advisories/new>) or contact the
+(<https://github.com/jhawlwut/apparitor/security/advisories/new>) or contact the
 repository owner [@jhawlwut](https://github.com/jhawlwut) directly. Reports are handled
 confidentially and reviewed promptly.
