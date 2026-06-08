@@ -9,6 +9,11 @@ This is example glue, not a hardened PDP — but it keeps the security posture t
 expects: any CLI failure or unrecognised outcome resolves to **deny** (fail closed), and
 ``decision`` is only ever ``true`` when Cedar explicitly returns Allow (exit code 0).
 
+It is not latency-tuned: each decision forks ``cedar`` and a batch forks one process per
+entry **sequentially**. That serialisation is deliberate — together with ``_MAX_BATCH`` it
+bounds fork amplification (see the batch-bounds note below). See the README's *Performance*
+section before parallelising.
+
 Run::
 
     python gateway.py --port 8080 --policies policies.cedar --entities entities.json
