@@ -1,0 +1,46 @@
+# pip-audit (PyPA) — audits the installed dependency tree against the Python Packaging
+# Advisory Database (PyPI/OSV) and fails on a known vulnerability. Unlike the Scorecard and
+# CodeQL workflows, this needs nothing special and runs now (including while the repo is
+# private) — it is real scanning, not a vanity badge. The weekly run catches CVEs disclosed
+# after a dependency was last touched.
+name: pip-audit
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: pip-audit (dependency CVEs)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Resolve the runtime dependency tree
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+          # Audits the core runtime deps only — the optional `[llamafirewall]` extra (a heavy
+          # ML stack) is not installed here, so its CVEs are out of scope for this fast gate.
+          # `pip freeze` also omits pip/setuptools/wheel (CI build tooling, not shipped deps),
+          # keeping the gate focused and stable.
+          pip freeze --exclude authzen-llamafirewall-scanner > requirements-audit.txt
+
+      - name: Audit dependencies
+        uses: pypa/gh-action-pip-audit@v1
+        with:
+          inputs: requirements-audit.txt

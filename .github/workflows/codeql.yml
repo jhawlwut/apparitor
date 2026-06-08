@@ -1,0 +1,44 @@
+# CodeQL static analysis (GitHub code scanning). Python is interpreted, so build-mode is
+# `none` — no build step needed.
+#
+# Staged: GitHub code scanning needs a PUBLIC repo (or GitHub Advanced Security on a private
+# one). The job is gated on repository visibility so it skips while this repo is private and
+# activates automatically once it is made public. Findings surface in the Security tab; the
+# README badge reflects that the scan workflow ran/passed (not a finding count).
+name: CodeQL
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (Python)
+    runs-on: ubuntu-latest
+    if: ${{ github.event.repository.visibility == 'public' }}
+    permissions:
+      security-events: write # upload analysis results
+      packages: read # fetch CodeQL packs
+      actions: read # required for private repos
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          build-mode: none
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:python"
