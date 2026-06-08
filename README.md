@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="https://app.aikido.dev/repositories/2253820/checks"><img src="https://img.shields.io/badge/Aikido%20Security-scanned%20daily-4c1?logo=aikido&logoColor=white" alt="Aikido Security Status"></a>
+</p>
+
 # authzen-llamafirewall-scanner
 
 [![CI](https://github.com/jhawlwut/authzen-scanner/actions/workflows/ci.yml/badge.svg)](https://github.com/jhawlwut/authzen-scanner/actions/workflows/ci.yml)
