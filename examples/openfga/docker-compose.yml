@@ -1,12 +1,11 @@
 # OpenFGA with the experimental AuthZEN API enabled, backed by the in-memory store.
 #
-# The image is pinned to an immutable release tag. For fully reproducible, egress-free
-# bring-up, resolve it to a sha256 digest in an environment with registry access
-# (`docker buildx imagetools inspect openfga/openfga:v1.15.0`) and replace the tag with
-# `openfga/openfga@sha256:...`.
+# Pinned by sha256 digest for reproducible, supply-chain-safe bring-up; the human-readable
+# tag is kept alongside it. To bump, re-resolve with
+# `docker buildx imagetools inspect openfga/openfga:<tag>`.
 services:
   openfga:
-    image: openfga/openfga:v1.15.0
+    image: openfga/openfga:v1.15.0@sha256:5cd70f1f71e17124e8213c0e35c4a453e39e25f6365a0baf700f06584a04e7e8
     # `run` defaults to the in-memory datastore, which is all this demo needs. The AuthZEN
     # endpoints are experimental and must be enabled explicitly; --authzen-base-url is only
     # used to advertise the discovery document.
