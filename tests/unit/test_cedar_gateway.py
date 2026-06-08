@@ -6,6 +6,8 @@ The subprocess call to ``cedar`` is stubbed, so these run without Docker or the 
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -63,3 +65,149 @@ def test_decide_fails_closed_when_cedar_missing(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(gateway.subprocess, "run", boom)
     evaluator = gateway.CedarEvaluator(Path("policies.cedar"), Path("entities.json"))
     assert evaluator.decide(_BODY) is False
+
+
+# --- batch endpoint -----------------------------------------------------------------
+
+
+def test_merge_item_entry_overrides_defaults() -> None:
+    defaults = {
+        "subject": {"type": "agent", "id": "demo-agent"},
+        "action": {"name": "tool_call.execute"},
+        "resource": {"type": "tool", "id": "default"},
+    }
+    merged = gateway._merge_item({"resource": {"type": "tool", "id": "entry"}}, defaults)
+    assert merged == {
+        "subject": {"type": "agent", "id": "demo-agent"},
+        "action": {"name": "tool_call.execute"},
+        "resource": {"type": "tool", "id": "entry"},  # entry wins
+        "context": None,  # absent on both -> None
+    }
+
+
+def _drive_batch(body: Any, *, content_length: int | None = None) -> tuple[int, dict[str, Any]]:
+    """Invoke the batch handler in-process (no socket) and capture the response."""
+    evaluator = gateway.CedarEvaluator(Path("policies.cedar"), Path("entities.json"))
+    handler_cls = gateway.make_handler(evaluator)
+    handler = handler_cls.__new__(handler_cls)
+    raw = json.dumps(body).encode()
+    length = len(raw) if content_length is None else content_length
+    handler.headers = {"Content-Length": str(length)}
+    handler.rfile = io.BytesIO(raw)
+    captured: list[tuple[int, dict[str, Any]]] = []
+
+    def capture(payload: dict[str, Any], status: int = 200) -> None:
+        captured.append((status, payload))
+
+    handler._send = capture  # type: ignore[method-assign]
+    handler._evaluate_batch()
+    return captured[0]
+
+
+def _allow_all(*_args: Any, **_kwargs: Any) -> SimpleNamespace:
+    return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+
+def test_batch_preserves_order_and_per_entry_decisions(monkeypatch: pytest.MonkeyPatch) -> None:
+    def by_resource(argv: list[str], *_a: Any, **_k: Any) -> SimpleNamespace:
+        rc = 2 if any("delete_database" in a for a in argv) else 0
+        return SimpleNamespace(returncode=rc, stdout="", stderr="")
+
+    monkeypatch.setattr(gateway.subprocess, "run", by_resource)
+    status, payload = _drive_batch(
+        {
+            "subject": {"type": "agent", "id": "demo-agent"},
+            "action": {"name": "tool_call.execute"},
+            "evaluations": [
+                {"resource": {"type": "tool", "id": "send_email"}},
+                {"resource": {"type": "tool", "id": "delete_database"}},
+            ],
+        }
+    )
+    assert status == 200
+    assert payload == {"evaluations": [{"decision": True}, {"decision": False}]}
+
+
+def test_batch_non_dict_entry_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Even when cedar would allow everything, a non-dict (malformed) entry must deny and must
+    # NOT inherit the request-level default tuple — the security-critical fail-closed case.
+    monkeypatch.setattr(gateway.subprocess, "run", _allow_all)
+    status, payload = _drive_batch(
+        {
+            "subject": {"type": "agent", "id": "demo-agent"},
+            "action": {"name": "tool_call.execute"},
+            "resource": {"type": "tool", "id": "send_email"},  # a valid Allow default
+            "evaluations": [12345, "garbage", None, True],
+        }
+    )
+    assert status == 200
+    assert payload == {"evaluations": [{"decision": False}] * 4}
+
+
+def test_batch_entry_missing_fields_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A dict entry with no resolvable resource makes decide() raise; the batch loop catches it
+    # per entry and denies rather than failing the whole request.
+    monkeypatch.setattr(gateway.subprocess, "run", _allow_all)
+    status, payload = _drive_batch(
+        {
+            "subject": {"type": "agent", "id": "demo-agent"},
+            "action": {"name": "tool_call.execute"},
+            "evaluations": [{"subject": {"type": "agent", "id": "demo-agent"}}],
+        }
+    )
+    assert (status, payload) == (200, {"evaluations": [{"decision": False}]})
+
+
+def test_batch_non_list_evaluations_is_400(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(gateway.subprocess, "run", _allow_all)
+    status, _ = _drive_batch({"evaluations": "nope"})
+    assert status == 400
+
+
+def test_batch_too_many_evaluations_is_413(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(gateway.subprocess, "run", _allow_all)
+    entry = {"resource": {"type": "tool", "id": "send_email"}}
+    status, _ = _drive_batch(
+        {
+            "subject": {"type": "agent", "id": "demo-agent"},
+            "action": {"name": "tool_call.execute"},
+            "evaluations": [entry] * (gateway._MAX_BATCH + 1),
+        }
+    )
+    assert status == 413
+
+
+def test_batch_oversized_body_is_400(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(gateway.subprocess, "run", _allow_all)
+    status, _ = _drive_batch({"evaluations": []}, content_length=gateway._MAX_BODY_BYTES + 1)
+    assert status == 400
+
+
+def test_batch_empty_list_returns_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(gateway.subprocess, "run", _allow_all)
+    status, payload = _drive_batch({"evaluations": []})
+    assert (status, payload) == (200, {"evaluations": []})
+
+
+def test_batch_non_dict_body_is_400(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A non-object JSON root (array/string/number) must be a clean 400, not an AttributeError.
+    monkeypatch.setattr(gateway.subprocess, "run", _allow_all)
+    status, _ = _drive_batch([{"resource": {"type": "tool", "id": "send_email"}}])
+    assert status == 400
+
+
+def test_batch_negative_content_length_is_400(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A negative Content-Length must not reach read(-1) (which would drain to EOF).
+    monkeypatch.setattr(gateway.subprocess, "run", _allow_all)
+    status, _ = _drive_batch({"evaluations": []}, content_length=-1)
+    assert status == 400
+
+
+def test_merge_item_honors_explicit_falsey_override() -> None:
+    defaults = {"resource": {"type": "tool", "id": "default"}, "context": {"k": "v"}}
+    # An entry that explicitly clears a field keeps the empty value (no default inheritance);
+    # a field the entry omits still falls back to the default.
+    merged = gateway._merge_item({"resource": {}, "context": None}, defaults)
+    assert merged["resource"] == {}
+    assert merged["context"] is None
+    assert gateway._merge_item({}, defaults)["resource"] == {"type": "tool", "id": "default"}
