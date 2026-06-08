@@ -5,6 +5,7 @@
 # authzen-llamafirewall-scanner
 
 [![CI](https://github.com/jhawlwut/authzen-scanner/actions/workflows/ci.yml/badge.svg)](https://github.com/jhawlwut/authzen-scanner/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen.svg)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
