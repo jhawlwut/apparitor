@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from authzen_llamafirewall.adapters import (
+from apparitor.adapters import (
     AnthropicToolCallAdapter,
     LangChainToolCallAdapter,
     OpenAIToolCallAdapter,

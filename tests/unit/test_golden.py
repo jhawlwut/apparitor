@@ -10,8 +10,8 @@ import json
 
 import pytest
 
-from authzen_llamafirewall.client import AuthZENClient
-from authzen_llamafirewall.engine import AuthorizationEngine
+from apparitor.client import AuthZENClient
+from apparitor.engine import AuthorizationEngine
 
 pytestmark = pytest.mark.unit
 

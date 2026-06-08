@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from authzen_llamafirewall.adapters import NormalizedToolCall
-from authzen_llamafirewall.errors import AuthZENConfigError
-from authzen_llamafirewall.mapping import (
+from apparitor.adapters import NormalizedToolCall
+from apparitor.errors import AuthZENConfigError
+from apparitor.mapping import (
     DefaultToolCallMapper,
     MCPResourceMapper,
     current_subject,
 )
-from authzen_llamafirewall.models import Subject
+from apparitor.models import Subject
 
 pytestmark = pytest.mark.unit
 
@@ -109,7 +109,7 @@ def test_mcp_mapper_server_scopes_resource_id(make_config) -> None:
 
 
 def test_mcp_resource_id_rejects_empty_parts() -> None:
-    from authzen_llamafirewall.mapping import mcp_resource_id
+    from apparitor.mapping import mcp_resource_id
 
     with pytest.raises(AuthZENConfigError):
         mcp_resource_id("", "read")
@@ -118,7 +118,7 @@ def test_mcp_resource_id_rejects_empty_parts() -> None:
 
 
 def test_subject_scope_sets_and_resets() -> None:
-    from authzen_llamafirewall.mapping import subject_scope
+    from apparitor.mapping import subject_scope
 
     assert current_subject.get() is None
     with subject_scope(Subject(type="user", id="alice")):

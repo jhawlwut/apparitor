@@ -71,7 +71,7 @@ every entry is permitted — then tears down.
 ## Point the scanner at it
 
 ```python
-from authzen_llamafirewall import AuthZENScanner, ScannerConfig
+from apparitor import AuthZENScanner, ScannerConfig
 
 scanner = AuthZENScanner(config=ScannerConfig(
     pdp_url="http://127.0.0.1:8080",

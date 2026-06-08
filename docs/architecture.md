@@ -1,8 +1,8 @@
 # Architecture
 
-How the AuthZEN scanner fits into LlamaFirewall and turns a tool call into an
-authorization decision. Design rationale lives in [requirements.md](requirements.md);
-this document focuses on the runtime shape.
+How apparitor turns an agent's tool call into an authorization decision — today via its
+LlamaFirewall scanner and the AuthZEN evaluation pipeline. Design rationale lives in
+[requirements.md](requirements.md); this document focuses on the runtime shape.
 
 ## Where it sits
 
@@ -69,15 +69,15 @@ LlamaFirewall → Agent  : blocked — tool not dispatched
 | `errors.py` | no | exception hierarchy (httpx mapped here) |
 
 The single LlamaFirewall import lives at the top of `scanner.py` behind an `ImportError`
-guard that re-raises `MissingDependencyError`. `authzen_llamafirewall.__init__` exposes
-`AuthZENScanner` lazily (PEP 562 `__getattr__`) so `import authzen_llamafirewall` succeeds
+guard that re-raises `MissingDependencyError`. `apparitor.__init__` exposes
+`AuthZENScanner` lazily (PEP 562 `__getattr__`) so `import apparitor` succeeds
 without LlamaFirewall.
 
 ## Registration
 
 ```python
 from llamafirewall import LlamaFirewall, Role
-from authzen_llamafirewall import AuthZENScanner
+from apparitor import AuthZENScanner
 
 scanner = AuthZENScanner(pdp_url="https://pdp.internal")
 firewall = LlamaFirewall(scanners={Role.ASSISTANT: [scanner]})

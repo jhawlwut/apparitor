@@ -25,7 +25,7 @@ if [ "$healthy" = false ]; then
 fi
 
 # A store scopes the model and tuples; the AuthZEN endpoints live under it.
-store_id=$(curl -sf "$API/stores" -d '{"name":"authzen-scanner-demo"}' | jq -r .id)
+store_id=$(curl -sf "$API/stores" -d '{"name":"apparitor-demo"}' | jq -r .id)
 curl -sf "$API/stores/$store_id/authorization-models" --data-binary @model.json >/dev/null
 curl -sf "$API/stores/$store_id/write" \
   -d "{\"writes\":{\"tuple_keys\":$(cat tuples.json)}}" >/dev/null

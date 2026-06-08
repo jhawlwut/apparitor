@@ -12,7 +12,7 @@ closes it via :meth:`AuthZENClient.aclose`.
   transport retries cover connection failures only, not ``5xx``/``429``.)
 * **SSRF guard.** ``pdp_url`` must be HTTPS and not a private/loopback/link-local host
   unless ``allow_insecure_pdp`` is set.
-* httpx exceptions are mapped onto :mod:`authzen_llamafirewall.errors` here.
+* httpx exceptions are mapped onto :mod:`apparitor.errors` here.
 """
 
 from __future__ import annotations

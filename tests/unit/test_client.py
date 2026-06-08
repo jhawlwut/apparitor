@@ -5,15 +5,15 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from authzen_llamafirewall.client import AuthZENClient, validate_pdp_url
-from authzen_llamafirewall.errors import (
+from apparitor.client import AuthZENClient, validate_pdp_url
+from apparitor.errors import (
     AuthZENClientError,
     AuthZENConfigError,
     MalformedPDPResponseError,
     PDPTimeoutError,
     PDPUnavailableError,
 )
-from authzen_llamafirewall.models import Action, EvaluationRequest, Resource, Subject
+from apparitor.models import Action, EvaluationRequest, Resource, Subject
 
 pytestmark = pytest.mark.unit
 
@@ -52,7 +52,7 @@ async def test_evaluate_deny(make_config, noop_sleep, respx_mock) -> None:
 
 @pytest.mark.asyncio
 async def test_batch(make_config, noop_sleep, respx_mock) -> None:
-    from authzen_llamafirewall.models import BatchEvaluationRequest, EvaluationItem
+    from apparitor.models import BatchEvaluationRequest, EvaluationItem
 
     respx_mock.post(_BATCH_URL).respond(
         json={"evaluations": [{"decision": True}, {"decision": False}]}

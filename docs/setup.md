@@ -1,10 +1,10 @@
-# Setup: connecting to a PDP
+# Setup: connecting to a policy engine
 
-The scanner speaks the AuthZEN 1.0 Access Evaluation API, so it works with any compliant
-PDP. Point it at an endpoint and go:
+apparitor speaks the AuthZEN 1.0 Access Evaluation API, so it reaches any compliant policy
+decision point (PDP). Point it at an endpoint and go:
 
 ```python
-from authzen_llamafirewall import AuthZENScanner
+from apparitor import AuthZENScanner
 
 scanner = AuthZENScanner(pdp_url="https://pdp.internal")
 ```
@@ -16,8 +16,8 @@ behind a gateway.
 ## Installation
 
 ```bash
-pip install "authzen-llamafirewall-scanner[llamafirewall]"   # scanner + LlamaFirewall
-pip install authzen-llamafirewall-scanner                    # AuthZEN client/models only
+pip install "apparitor[llamafirewall]"   # scanner + LlamaFirewall
+pip install apparitor                    # AuthZEN client/models only
 ```
 
 ## Authentication & TLS (bring-your-own httpx client)
@@ -27,7 +27,7 @@ For bearer tokens, mTLS, custom CA roots, or proxies, pass a pre-configured
 
 ```python
 import httpx
-from authzen_llamafirewall import AuthZENScanner, ScannerConfig
+from apparitor import AuthZENScanner, ScannerConfig
 
 http = httpx.AsyncClient(
     headers={"Authorization": f"Bearer {token}"},

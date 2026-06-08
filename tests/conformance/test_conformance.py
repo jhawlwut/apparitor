@@ -17,10 +17,10 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from authzen_llamafirewall.client import AuthZENClient
-from authzen_llamafirewall.decision import Verdict, aggregate, map_single
-from authzen_llamafirewall.errors import MalformedPDPResponseError
-from authzen_llamafirewall.models import (
+from apparitor.client import AuthZENClient
+from apparitor.decision import Verdict, aggregate, map_single
+from apparitor.errors import MalformedPDPResponseError
+from apparitor.models import (
     BatchEvaluationRequest,
     EvaluationRequest,
     EvaluationResponse,

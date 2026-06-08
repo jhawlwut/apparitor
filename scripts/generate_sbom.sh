@@ -10,14 +10,14 @@
 #
 # Usage:
 #   scripts/generate_sbom.sh [OUTPUT_PATH]
-# Default OUTPUT_PATH: sbom/authzen-llamafirewall-scanner.cdx.json
+# Default OUTPUT_PATH: sbom/apparitor.cdx.json
 #
 # NOTE: the output deliberately defaults outside dist/. The release publish step runs
 # `twine upload dist/*`, which rejects a non-distribution file — so the SBOM must never land
 # in dist/.
 set -euo pipefail
 
-OUT="${1:-sbom/authzen-llamafirewall-scanner.cdx.json}"
+OUT="${1:-sbom/apparitor.cdx.json}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 

@@ -7,10 +7,10 @@ import logging
 
 import pytest
 
-from authzen_llamafirewall.client import AuthZENClient
-from authzen_llamafirewall.config import ScannerConfig
-from authzen_llamafirewall.engine import AuthorizationEngine
-from authzen_llamafirewall.errors import AuthZENConfigError
+from apparitor.client import AuthZENClient
+from apparitor.config import ScannerConfig
+from apparitor.engine import AuthorizationEngine
+from apparitor.errors import AuthZENConfigError
 
 pytestmark = pytest.mark.unit
 
@@ -49,7 +49,7 @@ async def test_auth_token_is_never_logged(
     respx_mock.post(_EVAL_URL).respond(json={"decision": True})
     cfg = make_config(default_headers={"Authorization": "Bearer super-secret-token"})
     engine = _engine(cfg, noop_sleep)
-    with caplog.at_level(logging.DEBUG, logger="authzen_llamafirewall"):
+    with caplog.at_level(logging.DEBUG, logger="apparitor"):
         await engine.evaluate_tool_calls([make_openai_call("read", api_key="leakme")])
     assert "super-secret-token" not in caplog.text
     assert "leakme" not in caplog.text  # redacted arguments aren't logged either
