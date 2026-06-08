@@ -85,9 +85,7 @@ def test_merge_item_entry_overrides_defaults() -> None:
     }
 
 
-def _drive_batch(
-    body: dict[str, Any], *, content_length: int | None = None
-) -> tuple[int, dict[str, Any]]:
+def _drive_batch(body: Any, *, content_length: int | None = None) -> tuple[int, dict[str, Any]]:
     """Invoke the batch handler in-process (no socket) and capture the response."""
     evaluator = gateway.CedarEvaluator(Path("policies.cedar"), Path("entities.json"))
     handler_cls = gateway.make_handler(evaluator)
@@ -189,3 +187,27 @@ def test_batch_empty_list_returns_empty(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(gateway.subprocess, "run", _allow_all)
     status, payload = _drive_batch({"evaluations": []})
     assert (status, payload) == (200, {"evaluations": []})
+
+
+def test_batch_non_dict_body_is_400(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A non-object JSON root (array/string/number) must be a clean 400, not an AttributeError.
+    monkeypatch.setattr(gateway.subprocess, "run", _allow_all)
+    status, _ = _drive_batch([{"resource": {"type": "tool", "id": "send_email"}}])
+    assert status == 400
+
+
+def test_batch_negative_content_length_is_400(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A negative Content-Length must not reach read(-1) (which would drain to EOF).
+    monkeypatch.setattr(gateway.subprocess, "run", _allow_all)
+    status, _ = _drive_batch({"evaluations": []}, content_length=-1)
+    assert status == 400
+
+
+def test_merge_item_honors_explicit_falsey_override() -> None:
+    defaults = {"resource": {"type": "tool", "id": "default"}, "context": {"k": "v"}}
+    # An entry that explicitly clears a field keeps the empty value (no default inheritance);
+    # a field the entry omits still falls back to the default.
+    merged = gateway._merge_item({"resource": {}, "context": None}, defaults)
+    assert merged["resource"] == {}
+    assert merged["context"] is None
+    assert gateway._merge_item({}, defaults)["resource"] == {"type": "tool", "id": "default"}
