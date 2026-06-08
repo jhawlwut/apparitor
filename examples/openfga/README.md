@@ -50,6 +50,18 @@ This brings up OpenFGA (`docker-compose.yml`), creates a store, loads the model 
 and asserts a granted tool is allowed and an ungranted one is denied. It tears the stack
 down on exit.
 
+### Without Docker
+
+Where the Docker registry is unreachable but `github.com` is not (restricted-egress CI,
+sandboxes), the integration test can run OpenFGA from its pinned release binary instead of
+a container — downloaded once and **SHA-256-verified** before it runs:
+
+```bash
+APPARITOR_OPENFGA_NATIVE=1 pytest tests/integration/test_openfga.py -m integration --no-cov
+```
+
+Same vendored model + tuples, same assertions; no Docker or `testcontainers` needed.
+
 ## Point the scanner at it
 
 The store id is created at runtime, so it goes into the evaluation path:
