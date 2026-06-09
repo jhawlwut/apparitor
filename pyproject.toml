@@ -52,6 +52,11 @@ dependencies = [
 # The scanner plugin itself. Importing `apparitor.scanner` without
 # this installed raises a clear MissingDependencyError.
 llamafirewall = ["llamafirewall>=0.0.1"]
+# Native in-process Cedar backend (ScannerConfig(backend="cedar")). cedarpy wraps the
+# Apache-2.0 Cedar engine (Rust); its version tracks the Cedar major.minor it embeds. Optional
+# so the core stays standalone — importing `apparitor.cedar` without it raises
+# MissingDependencyError. Bump deliberately in lockstep with the Cedar engine.
+cedar = ["cedarpy>=4.8,<4.9"]
 dev = [
   "pytest>=8",
   "pytest-asyncio>=0.23",
@@ -97,9 +102,9 @@ strict = true
 files = ["src"]
 plugins = ["pydantic.mypy"]
 
-# LlamaFirewall ships no type stubs and may be absent in the lint environment.
+# LlamaFirewall and cedarpy ship no type stubs and may be absent in the lint environment.
 [[tool.mypy.overrides]]
-module = ["llamafirewall.*"]
+module = ["llamafirewall.*", "cedarpy.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -117,9 +122,10 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["apparitor"]
-# scanner.py is the only LlamaFirewall-dependent module; it is covered by the separate
-# `scanner` CI job that installs the [llamafirewall] extra, not the default unit run.
-omit = ["*/scanner.py"]
+# scanner.py (LlamaFirewall) and cedar.py (cedarpy) each depend on an optional extra and are
+# covered by their own CI jobs (`scanner`, `cedar`) that install the extra — not the default
+# unit run, which must import the package without those deps.
+omit = ["*/scanner.py", "*/cedar.py"]
 
 [tool.coverage.report]
 exclude_lines = [
