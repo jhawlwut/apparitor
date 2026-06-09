@@ -78,8 +78,11 @@ aggregator across the popular agentic firewalls and policy engines.
   retries) and the same mapping + fail-closed semantics. ✅ done.
 - **OPA / Rego** native backend — talks OPA's Data API (`/v1/data/<rule>`) directly, no
   AuthZEN gateway. ✅ done (`backend="opa"`).
-- Direct **Cedar** and **OpenFGA** backends for deployments that don't front their engine
-  with an AuthZEN endpoint — next, plugging into the same seam.
+- **Cedar** native backend — evaluates Cedar policies in-process via the optional `cedarpy`
+  binding, no gateway; the decision never leaves the host. ✅ done (`backend="cedar"`).
+- Direct **OpenFGA** backend (its own Check API) for deployments that don't front it with an
+  AuthZEN endpoint — next, plugging into the same seam. A managed **Amazon Verified
+  Permissions** backend (boto3) is tracked separately as the cloud/AVP variant.
 
 ## Out of scope (tracked, deferred)
 
