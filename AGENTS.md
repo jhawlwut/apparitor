@@ -15,10 +15,10 @@ live in [`.claude/skills/`](.claude/skills/).
 `apparitor` is an Apache-2.0, vendor-neutral authorization layer for AI agents: it
 authorizes an agent's tool calls against a policy engine and maps the verdict onto an
 agentic firewall's allow / block / human-review model. Policy engines are reached over the
-AuthZEN 1.0 interop standard today (OpenFGA, Cedar, OPA/Rego, …). The shipping firewall
-integration is a LlamaFirewall scanner; a NeMo Guardrails rail and native (non-AuthZEN)
-policy-engine adapters are planned — see [`ROADMAP.md`](ROADMAP.md). Public standards only
-— no proprietary or confidential material, ever.
+AuthZEN 1.0 interop standard (OpenFGA, Cedar, OPA/Rego, …) or via native backends for OPA
+and Cedar. The shipping firewall integrations are a LlamaFirewall scanner and a NeMo
+Guardrails rail; a direct OpenFGA backend is planned — see [`ROADMAP.md`](ROADMAP.md).
+Public standards only — no proprietary or confidential material, ever.
 
 ## Commands (the gate)
 

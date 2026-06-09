@@ -25,11 +25,12 @@ standard, so the same wiring reaches the engines you already author policy in �
 **OpenFGA** (Zanzibar / ReBAC), **Cedar** (policy-as-code), and **OPA / Rego** — with no
 policy rewrite. Apache-2.0, built entirely on public standards.
 
-> **Status: `0.0.1a0` — pre-alpha.** **Shipping today:** the LlamaFirewall integration
-> and the AuthZEN evaluation pipeline, working end-to-end against any AuthZEN 1.0 PDP
-> (OpenFGA, Cedar, OPA, Cerbos, Topaz), with 98% test coverage on the firewall-free core
-> (see [`CHANGELOG`](CHANGELOG.md)). **On the roadmap:** a NeMo Guardrails rail and native
-> (non-AuthZEN) adapters for Cedar / OpenFGA / Rego. APIs may change — see
+> **Status: `0.0.1a0` — pre-alpha.** **Shipping today:** the LlamaFirewall and NeMo
+> Guardrails integrations and the AuthZEN evaluation pipeline, working end-to-end against
+> any AuthZEN 1.0 PDP (OpenFGA, Cedar, OPA, Cerbos, Topaz) — plus native (non-AuthZEN)
+> backends for OPA and Cedar — with 98% test coverage on the firewall-free core (see
+> [`CHANGELOG`](CHANGELOG.md)). **On the roadmap:** a direct OpenFGA backend and an Amazon
+> Verified Permissions cloud variant. APIs may change — see
 > [`docs/requirements.md`](docs/requirements.md) for the design and [`ROADMAP`](ROADMAP.md).
 
 ## The gap
@@ -65,8 +66,9 @@ Agent: "Delete the production database"
 
 ## Quickstart (target API — wiring is ≤10 lines)
 
-apparitor ships today as a LlamaFirewall scanner. Point it at any AuthZEN-compliant policy
-decision point (PDP) and bind it to the assistant role:
+apparitor ships today as a LlamaFirewall scanner and a NeMo Guardrails rail
+(`NeMoAuthorizationRails`). The LlamaFirewall path: point the scanner at any
+AuthZEN-compliant policy decision point (PDP) and bind it to the assistant role:
 
 ```python
 from llamafirewall import LlamaFirewall, Role
@@ -154,17 +156,18 @@ decision principal (it may itself be an identifier such as an email), so treat t
 | Firewall | Vendor | Status |
 | --- | --- | --- |
 | [**LlamaFirewall**](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall) | Meta | shipping (`AuthZENScanner`) |
-| [**NeMo Guardrails**](https://github.com/NVIDIA/NeMo-Guardrails) | NVIDIA | planned ([ROADMAP](ROADMAP.md)) |
+| [**NeMo Guardrails**](https://github.com/NVIDIA/NeMo-Guardrails) | NVIDIA | shipping (`NeMoAuthorizationRails`) |
 
 **Policy engines** (where the authorization decision is made). apparitor reaches these over
-AuthZEN today; native adapters that skip the AuthZEN hop are on the roadmap:
+AuthZEN; OPA and Cedar also have native backends that skip the AuthZEN hop, selected by
+config (`backend="opa"` / `backend="cedar"`):
 
 | Engine | Paradigm | How apparitor reaches it | Example |
 | --- | --- | --- | --- |
 | **Mock PDP** (testing/demo) | — | AuthZEN | [`examples/mock_pdp/`](examples/mock_pdp/) |
 | **OpenFGA** | Zanzibar / ReBAC | native AuthZEN (experimental) | [`examples/openfga/`](examples/openfga/) |
-| **Cedar** | policy-as-code (ABAC) | AuthZEN gateway | [`examples/cedar/`](examples/cedar/) |
-| **OPA / Rego** | policy-as-code | AuthZEN ([`opa-authzen`](https://github.com/kanywst/opa-authzen)) | [`docs/setup.md`](docs/setup.md) |
+| **Cedar** | policy-as-code (ABAC) | AuthZEN gateway · native in-process (`backend="cedar"`) | [`examples/cedar/`](examples/cedar/) |
+| **OPA / Rego** | policy-as-code | AuthZEN gateway · native Data API (`backend="opa"`) | [`examples/opa/`](examples/opa/) |
 | **Amazon Verified Permissions** | managed Cedar | [AWS AuthZEN interface](https://github.com/aws-samples/sample-authzen-interface-verified-permissions) | [`examples/avp/`](examples/avp/) |
 | Any AuthZEN 1.0 PDP (Cerbos, Topaz, …) | varies | AuthZEN | [`docs/setup.md`](docs/setup.md) |
 
