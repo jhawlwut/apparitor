@@ -183,6 +183,27 @@ jobs:
       - name: Pytest (FastMCP middleware adapter, with fastmcp)
         run: pytest tests/unit/test_fastmcp_middleware.py tests/unit/test_smoke.py -p no:cacheprovider --no-cov
 
+  # Proof of the core thesis: ONE policy (examples/cedar/policies.cedar), ONE engine, THREE
+  # enforcement points agreeing on the same verdicts. Installs every PEP extra (CPU-only
+  # torch keeps LlamaFirewall light) and requires all three lanes to run (REQUIRE_ALL).
+  three-pep-demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - name: Install CPU-only torch then every enforcement-point extra
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[llamafirewall,nemo,fastmcp,cedar]"
+      - name: Run the three-PEP portability demo
+        env:
+          APPARITOR_DEMO_REQUIRE_ALL: "1"
+        run: python examples/three-peps/demo.py
+
   # Integration tests need real PDPs via Docker. Kept off the default path; auto-skips
   # via conftest when no daemon is present, so it never blocks the merge gate.
   integration:
