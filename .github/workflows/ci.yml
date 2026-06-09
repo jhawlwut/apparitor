@@ -156,6 +156,27 @@ jobs:
       - name: Pytest (NeMo Guardrails rail adapter, with nemoguardrails)
         run: pytest tests/unit/test_nemo_backend.py -p no:cacheprovider --no-cov
 
+  # The FastMCP middleware adapter's only hard dependency is fastmcp, so its end-to-end test
+  # runs in a dedicated job that installs the extra — keeping it out of the default [dev] run,
+  # like the scanner, cedar and nemo jobs. The matrix exercises both supported lines (the last
+  # maintained 2.x and current 3.x); drop the 2.x leg when the pin floor moves to 3.
+  fastmcp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        fastmcp-version: ["fastmcp==2.14.*", "fastmcp>=3.1,<4"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]" "${{ matrix.fastmcp-version }}"
+      - name: Pytest (FastMCP middleware adapter, with fastmcp)
+        run: pytest tests/unit/test_fastmcp_middleware.py -p no:cacheprovider --no-cov
+
   # Integration tests need real PDPs via Docker. Kept off the default path; auto-skips
   # via conftest when no daemon is present, so it never blocks the merge gate.
   integration:

@@ -106,6 +106,9 @@ class ScannerConfig(BaseModel):
     cache_enabled: bool = False
     cache_ttl_s: float = Field(default=60.0, ge=0)
     cache_max_ttl_s: float = Field(default=300.0, ge=0)
+    # Entry cap (FIFO eviction). Per-subject keys multiply cardinality on long-lived hosts
+    # (e.g. per-token MCP subjects), so the cache must be bounded.
+    cache_max_entries: int = Field(default=10_000, ge=1)
 
     # --- argument handling / logging ---
     forward_arguments: bool = True

@@ -25,11 +25,12 @@ standard, so the same wiring reaches the engines you already author policy in �
 **OpenFGA** (Zanzibar / ReBAC), **Cedar** (policy-as-code), and **OPA / Rego** — with no
 policy rewrite. Apache-2.0, built entirely on public standards.
 
-> **Status: `0.0.1a0` — pre-alpha.** **Shipping today:** the LlamaFirewall integration
-> and the AuthZEN evaluation pipeline, working end-to-end against any AuthZEN 1.0 PDP
-> (OpenFGA, Cedar, OPA, Cerbos, Topaz), with 98% test coverage on the firewall-free core
-> (see [`CHANGELOG`](CHANGELOG.md)). **On the roadmap:** a NeMo Guardrails rail and native
-> (non-AuthZEN) adapters for Cedar / OpenFGA / Rego. APIs may change — see
+> **Status: `0.0.1a0` — pre-alpha.** **Shipping today:** three enforcement points — the
+> LlamaFirewall scanner, the NeMo Guardrails rail, and the FastMCP server middleware — and
+> the AuthZEN evaluation pipeline, working end-to-end against any AuthZEN 1.0 PDP
+> (OpenFGA, Cedar, OPA, Cerbos, Topaz) plus native OPA and in-process Cedar backends, with
+> 98% test coverage on the adapter-free core (see [`CHANGELOG`](CHANGELOG.md)). **On the
+> roadmap:** an A2A adapter and a native OpenFGA backend. APIs may change — see
 > [`docs/requirements.md`](docs/requirements.md) for the design and [`ROADMAP`](ROADMAP.md).
 
 ## The gap
@@ -83,7 +84,19 @@ result = await firewall.scan_async(assistant_message)   # ALLOW / BLOCK / HUMAN_
 Per request, supply the real end user the agent acts for (recommended over a static
 `agent_id`) — see [Identity: who the agent acts for](#identity-who-the-agent-acts-for).
 
-The AuthZEN client and models are **firewall-free** and usable on their own:
+At the **MCP boundary** the same engine runs server-side, before any tool executes —
+and the subject is the *validated* OAuth identity of the caller (the token's `sub`),
+not a host-asserted value (`pip install "apparitor[fastmcp]"`):
+
+```python
+from fastmcp import FastMCP
+from apparitor.fastmcp import FastMCPAuthorizationMiddleware
+
+server = FastMCP("files", auth=...)   # your token verifier supplies the identity
+server.add_middleware(FastMCPAuthorizationMiddleware(pdp_url="https://pdp.internal"))
+```
+
+The AuthZEN client and models are **adapter-free** and usable on their own:
 
 ```python
 from apparitor.models import EvaluationRequest   # no firewall dependency needed
@@ -123,9 +136,11 @@ along as AuthZEN `context` for policy conditions — see
 [docs/setup.md](docs/setup.md#identity-resolving-the-subject) for the full resolution order
 and a request-context example.
 
-> Enforcement points that carry a *validated* identity of their own — e.g. an MCP server
-> holding the caller's OAuth token — populate this same subject seam; see the
-> [roadmap](ROADMAP.md).
+> Enforcement points that carry a *validated* identity of their own populate this same
+> subject seam: the FastMCP middleware reads the verified OAuth token's `sub` claim and
+> it outranks any host-asserted subject. A token is never silently downgraded — a token
+> without a usable claim refuses the call, and the static `agent_id` fallback requires an
+> explicit `allow_static_subject=True` opt-in (local/stdio only).
 
 ## Observability
 
@@ -149,12 +164,13 @@ decision principal (it may itself be an identifier such as an email), so treat t
 
 ## What apparitor connects
 
-**Agentic firewalls** (the agent-side hook apparitor plugs into):
+**Enforcement points** (the agent-side hooks apparitor plugs into):
 
-| Firewall | Vendor | Status |
+| Enforcement point | Vendor | Status |
 | --- | --- | --- |
 | [**LlamaFirewall**](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall) | Meta | shipping (`AuthZENScanner`) |
-| [**NeMo Guardrails**](https://github.com/NVIDIA/NeMo-Guardrails) | NVIDIA | planned ([ROADMAP](ROADMAP.md)) |
+| [**NeMo Guardrails**](https://github.com/NVIDIA/NeMo-Guardrails) | NVIDIA | shipping (`NeMoAuthorizationRails`) |
+| [**FastMCP**](https://github.com/PrefectHQ/fastmcp) server middleware | community (MCP) | shipping (`FastMCPAuthorizationMiddleware`) |
 
 **Policy engines** (where the authorization decision is made). apparitor reaches these over
 AuthZEN today; native adapters that skip the AuthZEN hop are on the roadmap:

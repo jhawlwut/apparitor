@@ -63,14 +63,26 @@ security findings.
 This is where apparitor broadens from "an AuthZEN scanner for LlamaFirewall" into an
 aggregator across the popular agentic firewalls and policy engines.
 
-### More agentic firewalls
+### More enforcement points (firewalls, MCP, A2A)
 
 - ✅ **NeMo Guardrails** (NVIDIA) rail — binds the same `AuthorizationEngine` behind a NeMo
   custom action so a NeMo-guarded agent gets the identical authorization check; the verdict
   maps onto NeMo's allow / block(refuse) model via `output_mapping` (fail-closed). Adapter,
   not a re-implementation (`apparitor.nemo`, optional `[nemo]` extra).
-- Keep the firewall-specific surface thin: only the firewall adapter module may import a
-  firewall SDK; the core stays standalone.
+- ✅ **FastMCP server middleware** — the first MCP-boundary PEP: every `tools/call` is
+  authorized server-side before the tool executes, with the subject taken from the
+  **validated** OAuth token (`sub`) rather than a host assertion (`apparitor.fastmcp`,
+  optional `[fastmcp]` extra). Deferred follow-ups, in priority order: 📋 list filtering
+  (`tools/list` shaping; evaluate FastMCP 3.x transforms vs `on_list_tools`), 📋 workload
+  (client-credentials) identities as a distinct subject type, 📋 gating resource reads and
+  prompts alongside tool calls.
+- 🔜 **A2A adapter** — the same `subject/action/resource` question for agent-to-agent
+  calls (`action = invoke`, `resource = <target agent/skill>`); first non-firewall,
+  non-MCP surface.
+- 📋 A three-PEP portability demo: one Cedar policy enforced identically at the scanner,
+  the rail, and the MCP middleware (in-process Cedar backend, no Docker).
+- Keep the host-specific surface thin: only the adapter module may import a host SDK; the
+  core stays standalone.
 
 ### 🔜 Native policy-engine adapters (skip the AuthZEN hop)
 

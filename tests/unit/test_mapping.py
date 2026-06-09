@@ -117,6 +117,46 @@ def test_mcp_resource_id_rejects_empty_parts() -> None:
         mcp_resource_id("files", "  ")
 
 
+def test_mcp_resource_id_rejects_embedded_separator() -> None:
+    # "a/b" + "read" and "a" + "b/read" would collide on the same ambiguous policy key.
+    from apparitor.mapping import mcp_resource_id
+
+    with pytest.raises(AuthZENConfigError):
+        mcp_resource_id("a/b", "read")
+    with pytest.raises(AuthZENConfigError):
+        mcp_resource_id("files", "b/read")
+
+
+def test_mcp_mapper_reads_label_from_request_context(make_config) -> None:
+    from apparitor.mapping import MCP_SERVER_LABEL_KEY
+
+    mapper = MCPResourceMapper(make_config())
+    req = mapper.map(_call("read"), {MCP_SERVER_LABEL_KEY: "files"})
+    assert req is not None
+    assert req.resource.id == "files/read"
+
+
+def test_mcp_mapper_constructor_label_wins_over_context(make_config) -> None:
+    from apparitor.mapping import MCP_SERVER_LABEL_KEY
+
+    mapper = MCPResourceMapper(make_config(), server_label="vault")
+    req = mapper.map(_call("read"), {MCP_SERVER_LABEL_KEY: "files"})
+    assert req is not None
+    assert req.resource.id == "vault/read"
+
+
+def test_mcp_mapper_without_label_fails_closed(make_config) -> None:
+    with pytest.raises(AuthZENConfigError):
+        MCPResourceMapper(make_config()).map(_call("read"), {})
+
+
+def test_mcp_mapper_normalizes_tool_segment(make_config) -> None:
+    # Same case/whitespace anti-evasion as the default mapper's resource id.
+    req = MCPResourceMapper(make_config(), server_label="files").map(_call("  Read  "), {})
+    assert req is not None
+    assert req.resource.id == "files/read"
+
+
 def test_subject_scope_sets_and_resets() -> None:
     from apparitor.mapping import subject_scope
 
