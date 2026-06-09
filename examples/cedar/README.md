@@ -90,8 +90,8 @@ Verified Permissions — lives in [`../avp/`](../avp/). See [../README.md](../RE
 The gateway above lets the scanner speak plain AuthZEN to the `cedar` CLI. If you'd rather
 skip the gateway entirely, the scanner has a **native Cedar backend** that evaluates the
 policy **in-process** via the optional [`cedarpy`](https://pypi.org/project/cedarpy/) binding
-(no server, no subprocess, no network — the decision never leaves the host, which keeps it
-the sovereignty- and ops-lightest option). Install the extra and point at the vendored
+(no server, no subprocess, no network — decisions never leave the host, keeping them local
+and reducing operational moving parts). Install the extra and point at the vendored
 policy + entities:
 
 ```bash
