@@ -1,6 +1,7 @@
 # Two stages: take the official OPA binary, then run the stdlib gateway alongside it.
-# Both stages are offline — the OPA image is pinned by digest, so nothing is fetched at
-# build or run time. Build context is examples/opa/ so the vendored policy + data are copied.
+# Both stages are digest-pinned for reproducibility; a cold build pulls those pinned images
+# once, but nothing else is fetched at build time (no cargo/curl, unlike the Cedar example)
+# and nothing at runtime. Build context is examples/opa/ so the vendored policy + data are copied.
 
 # openpolicyagent/opa:1.17.1-static — static binary at /opa, pinned by digest.
 FROM openpolicyagent/opa:1.17.1-static@sha256:c29f8ee8dbe66608a1c04e9be84b04efc46877625e6b0877e559954565209efc AS opa

@@ -10,6 +10,7 @@ default allow := false
 allow if {
 	input.subject.id == "demo-agent"
 	input.action.name == "tool_call.execute"
+	input.resource.type == "tool"
 	tool := data.tools[input.resource.id]
 	tool.sensitivity == "low"
 	not tool.destructive

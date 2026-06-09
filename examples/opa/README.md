@@ -10,8 +10,8 @@ feeds each request to OPA as the policy `input` and evaluates the vendored Rego 
 Together with the [OpenFGA example](../openfga/) (relationship-based) and the
 [Cedar example](../cedar/) (policy-as-code via a gateway), this shows the scanner works
 unchanged across the popular authorization engines over the same AuthZEN API. OPA and Cedar
-are both policy-as-code; OPA's Rego is the general-purpose policy language behind much of
-the cloud-native ecosystem.
+are both policy-as-code; this example evaluates general-purpose Rego, exercised through the
+gateway over the same AuthZEN API.
 
 ## What it shows
 

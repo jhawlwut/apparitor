@@ -98,6 +98,15 @@ def test_decide_fails_closed_when_opa_missing(monkeypatch: pytest.MonkeyPatch) -
     assert evaluator.decide(_BODY) is False
 
 
+def test_decide_fails_closed_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    def hang(*_args: Any, **_kwargs: Any) -> SimpleNamespace:
+        raise gateway.subprocess.TimeoutExpired(cmd="opa", timeout=gateway._EVAL_TIMEOUT_S)
+
+    monkeypatch.setattr(gateway.subprocess, "run", hang)
+    evaluator = gateway.OpaEvaluator(Path("policy.rego"), Path("data.json"))
+    assert evaluator.decide(_BODY) is False
+
+
 # --- batch endpoint -----------------------------------------------------------------
 
 
