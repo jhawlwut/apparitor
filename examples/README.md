@@ -20,8 +20,8 @@ any other AuthZEN 1.0 PDP (Cerbos, Topaz, …) works the same way.
 
 ## Reproducibility notes
 
-- Container images are pinned **by digest** with healthchecks; a `justfile`/`smoke.sh`
-  drives bring-up and a smoke check.
+- Container images are pinned **by digest** with healthchecks; a `smoke.sh` drives
+  bring-up and a smoke check.
 - Policy bundles / models are **vendored and pinned** — no fetching at runtime (works
   under restricted egress).
 - Anything requiring Docker is excluded from the default CI run and auto-skips when no
