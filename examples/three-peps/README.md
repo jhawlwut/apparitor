@@ -22,6 +22,8 @@ delete_database  -> BLOCK
 
 ## Run
 
+From the repo root:
+
 ```bash
 pip install -e ".[llamafirewall,nemo,fastmcp,cedar]"   # CPU-only torch: see ci.yml
 python examples/three-peps/demo.py
@@ -29,7 +31,8 @@ python examples/three-peps/demo.py
 
 Lanes whose optional dependency is missing are skipped with an install hint; the script
 exits non-zero if any lane disagrees (or, with `APPARITOR_DEMO_REQUIRE_ALL=1`, if any lane
-was skipped). The `three-pep-demo` CI job runs all three on every push.
+was skipped). The `three-pep-demo` CI job runs all three on every PR and push to `main` —
+no Docker and no `smoke.sh`, unlike the PDP examples, because everything is in-process.
 
 Notes that keep the demo honest:
 
@@ -40,3 +43,6 @@ Notes that keep the demo honest:
 - The FastMCP lane opts in to `allow_static_subject=True` because the demo runs in-process
   with no OAuth server. On a network transport, leave it off and let the validated token
   supply the subject.
+- The NeMo lane invokes the registered action directly rather than through an `LLMRails`
+  flow — the verdict contract (`return_value` + `output_mapping`) is identical either way,
+  and the demo needs no LLM.

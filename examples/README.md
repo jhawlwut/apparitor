@@ -1,7 +1,8 @@
 # Examples
 
 Worked examples wiring the scanner to PDPs. The **mock PDP, OpenFGA, Cedar, and OPA
-examples are runnable** (each with a `smoke.sh` and a Docker-gated integration test); AVP
+examples are runnable** (each with a `smoke.sh` and a Docker-gated integration test), and
+**three-peps** is runnable fully in-process (CI-gated, no Docker or `smoke.sh`); AVP
 and the scenario walk-through are still placeholders (see [`ROADMAP.md`](../ROADMAP.md) M3).
 
 | Directory | What it shows | Status |
