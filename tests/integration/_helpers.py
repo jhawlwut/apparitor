@@ -130,7 +130,8 @@ def native_opa(policy: Path, data: Path) -> Iterator[str]:
     """Run the pinned OPA binary in server mode over the vendored policy + data; yield base URL.
 
     A Docker-free backend for the native OPA integration test (linux/amd64 only); skips
-    cleanly on other platforms rather than failing.
+    cleanly on other platforms rather than failing. Callers are responsible for waiting until
+    OPA is ready, e.g. ``wait_healthy(base, path="/health")`` (OPA serves ``/health``).
     """
     if sys.platform != "linux" or platform.machine() not in ("x86_64", "amd64"):
         pytest.skip("native OPA backend supports linux/amd64 only")

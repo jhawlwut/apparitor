@@ -55,7 +55,10 @@ class ScannerConfig(BaseModel):
     evaluation_path: str = "/access/v1/evaluation"
     batch_path: str = "/access/v1/evaluations"
     # OPA backend (backend="opa"): the Rego decision path under OPA's Data API
-    # (``/v1/data/<path>``) — the package plus a boolean rule, e.g. "apparitor/authz/allow".
+    # (``/v1/data/<path>``) — your policy's package plus a boolean rule. **Set this to match
+    # your own Rego package**; the default matches this repo's example policy
+    # (examples/opa/policy.rego). A path that doesn't resolve to a boolean rule fails closed
+    # (deny), so a mismatch is safe but will deny every call until corrected.
     opa_decision_path: str = "apparitor/authz/allow"
 
     # --- AuthZEN tuple defaults (mappers may override per call) ---

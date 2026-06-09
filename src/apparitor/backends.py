@@ -78,8 +78,10 @@ class OPABackend(HTTPDecisionTransport):
 
     async def evaluate_batch(self, request: BatchEvaluationRequest) -> BatchEvaluationResponse:
         # Fan out concurrently over the shared pooled client; order is preserved by gather.
-        # Any per-entry transport/timeout/malformed error propagates and the engine resolves
-        # it through on_error (fail closed) — a partial batch never becomes an allow.
+        # gather (no return_exceptions) propagates the first per-entry error and cancels the
+        # in-flight siblings — intentional and security-critical: any transport/timeout/
+        # malformed error must surface so the engine resolves it through on_error (fail
+        # closed). Do NOT add return_exceptions=True; a partial batch must never become an allow.
         decisions = await asyncio.gather(*(self._query(doc) for doc in _batch_inputs(request)))
         return BatchEvaluationResponse(
             evaluations=[EvaluationResponse(decision=d) for d in decisions]
@@ -123,7 +125,9 @@ def _batch_inputs(request: BatchEvaluationRequest) -> list[dict[str, Any]]:
     """One OPA ``input`` document per batch entry, overlaying request-level defaults.
 
     Mirrors AuthZEN batch semantics: top-level subject/action/resource/context are defaults
-    each entry may override. The engine fills every entry fully, so this is also a correctness
+    each entry may override. Override is wholesale, not a merge — an entry with ``context={}``
+    deliberately clears the request-level context (it is not the same as "unset", which falls
+    back to the default). The engine fills every entry fully, so this is also a correctness
     guard for direct callers.
     """
     inputs: list[dict[str, Any]] = []

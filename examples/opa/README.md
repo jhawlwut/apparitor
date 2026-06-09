@@ -112,7 +112,9 @@ scanner = AuthZENScanner(config=ScannerConfig(
     pdp_url="http://127.0.0.1:8181",
     allow_insecure_pdp=True,                    # local dev, plain HTTP
     agent_id="demo-agent",
-    opa_decision_path="apparitor/authz/allow",  # the boolean Rego rule to query
+    opa_decision_path="apparitor/authz/allow",  # the boolean Rego rule to query — set this
+                                                # to match your own policy's package + rule
+
 ))
 ```
 
