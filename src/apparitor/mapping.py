@@ -50,6 +50,17 @@ _REDACTED = "***redacted***"
 MCP_SERVER_LABEL_KEY = "mcp_server_label"
 
 
+def request_context_attrs(request_context: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The host-trusted enrichment keys forwarded as AuthZEN ``context``.
+
+    Shared by the mappers and by adapters that shape evaluation requests directly (e.g.
+    MCP resource/prompt gating), so every surface forwards the same attribute set.
+    """
+    keys = ("conversation_id", "user_id", "correlation_id")
+    ctx = {k: request_context[k] for k in keys if k in request_context}
+    return ctx or None
+
+
 @contextmanager
 def subject_scope(subject: Subject) -> Iterator[None]:
     """Bind :data:`current_subject` for the duration of the ``with`` block, then reset it.
@@ -147,9 +158,7 @@ class DefaultToolCallMapper:
         )
 
     def _context(self, request_context: Mapping[str, Any]) -> dict[str, Any] | None:
-        keys = ("conversation_id", "user_id", "correlation_id")
-        ctx = {k: request_context[k] for k in keys if k in request_context}
-        return ctx or None
+        return request_context_attrs(request_context)
 
     def map(
         self,
