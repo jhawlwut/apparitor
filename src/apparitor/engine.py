@@ -69,7 +69,11 @@ class AuthorizationEngine:
         #: pass ``NoopMetrics()`` to disable or your own sink to forward elsewhere.
         self.metrics: MetricsSink = metrics if metrics is not None else InMemoryMetrics()
         self._cache = (
-            DecisionCache(ttl_s=config.cache_ttl_s, max_ttl_s=config.cache_max_ttl_s)
+            DecisionCache(
+                ttl_s=config.cache_ttl_s,
+                max_ttl_s=config.cache_max_ttl_s,
+                max_entries=config.cache_max_entries,
+            )
             if config.cache_enabled
             else None
         )
@@ -82,9 +86,30 @@ class AuthorizationEngine:
         """Authorize every tool call in ``tool_calls`` and return a single verdict."""
         if not tool_calls:  # nothing to authorize — no decision to time or count
             return VerdictResult(Verdict.SKIP, _SKIP_REASON, VerdictStatus.SKIPPED)
+        try:
+            normalized = [_normalize(raw) for raw in tool_calls]
+        except _UnparseableToolCall as exc:
+            result = VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR)
+            self._emit(result, [], 0.0)  # fail closed, still counted in metrics
+            return result
+        return await self.evaluate_normalized(normalized, request_context)
+
+    async def evaluate_normalized(
+        self,
+        calls: list[NormalizedToolCall] | None,
+        request_context: Mapping[str, Any] | None = None,
+    ) -> VerdictResult:
+        """Authorize already-normalised tool calls and return a single verdict.
+
+        The seam for enforcement points that receive tool calls in structured form (e.g.
+        an MCP ``tools/call`` request): they construct :class:`NormalizedToolCall` directly
+        instead of round-tripping a provider-shaped dict through adapter detection.
+        """
+        if not calls:  # nothing to authorize — no decision to time or count
+            return VerdictResult(Verdict.SKIP, _SKIP_REASON, VerdictStatus.SKIPPED)
 
         started = time.perf_counter()
-        result, requests = await self._decide(tool_calls, request_context or {})
+        result, requests = await self._decide(calls, request_context or {})
         latency_s = time.perf_counter() - started
         self._emit(result, requests, latency_s)
         return result
@@ -119,12 +144,10 @@ class AuthorizationEngine:
             logger.exception("authzen: cache metric emission failed (verdict unaffected)")
 
     async def _decide(
-        self, tool_calls: list[dict[str, Any]], ctx: Mapping[str, Any]
+        self, tool_calls: list[NormalizedToolCall], ctx: Mapping[str, Any]
     ) -> tuple[VerdictResult, list[EvaluationRequest]]:
         try:
             requests = self._build_requests(tool_calls, ctx)
-        except _UnparseableToolCall as exc:
-            return VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR), []
         except AuthZENConfigError as exc:
             # Our misconfiguration (e.g. no subject) — fail closed, loudly.
             return VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR), []
@@ -148,12 +171,11 @@ class AuthorizationEngine:
         return verdict, requests
 
     def _build_requests(
-        self, tool_calls: list[dict[str, Any]], ctx: Mapping[str, Any]
+        self, tool_calls: list[NormalizedToolCall], ctx: Mapping[str, Any]
     ) -> list[EvaluationRequest]:
         requests: list[EvaluationRequest] = []
-        for raw in tool_calls:
-            normalized = _normalize(raw)
-            mapped = self._mapper.map(normalized, ctx)
+        for call in tool_calls:
+            mapped = self._mapper.map(call, ctx)
             if mapped is not None:
                 requests.append(mapped)
         return requests

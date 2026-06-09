@@ -70,16 +70,18 @@ __version__ = "0.0.1a0"
 
 if TYPE_CHECKING:
     # For type-checkers only; these runtime exports are lazy (see __getattr__ below) because
-    # each pulls an optional dependency (llamafirewall / cedarpy / nemoguardrails).
+    # each pulls an optional dependency (llamafirewall / cedarpy / nemoguardrails / fastmcp).
     from .cedar import CedarBackend
+    from .fastmcp import FastMCPAuthorizationMiddleware
     from .nemo import NeMoAuthorizationRails
     from .scanner import AuthZENScanner
 
 __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readability
     "__version__",
-    # firewall adapters (lazy; each needs an optional firewall SDK)
+    # enforcement-point adapters (lazy; each needs an optional host SDK)
     "AuthZENScanner",
     "NeMoAuthorizationRails",
+    "FastMCPAuthorizationMiddleware",
     # config
     "ScannerConfig",
     "OnError",
@@ -157,4 +159,8 @@ def __getattr__(name: str) -> object:
         from .nemo import NeMoAuthorizationRails
 
         return NeMoAuthorizationRails
+    if name == "FastMCPAuthorizationMiddleware":
+        from .fastmcp import FastMCPAuthorizationMiddleware
+
+        return FastMCPAuthorizationMiddleware
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

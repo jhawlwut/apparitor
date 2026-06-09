@@ -44,6 +44,11 @@ current_request_context: contextvars.ContextVar[Mapping[str, Any] | None] = cont
 
 _REDACTED = "***redacted***"
 
+#: Request-context key carrying the MCP server label when it is resolved per call (e.g. by
+#: the FastMCP middleware, from the server it is mounted on) rather than fixed at mapper
+#: construction. Host-trusted, like everything else in the request context.
+MCP_SERVER_LABEL_KEY = "mcp_server_label"
+
 
 @contextmanager
 def subject_scope(subject: Subject) -> Iterator[None]:
@@ -73,12 +78,16 @@ def mcp_resource_id(server: str, tool: str) -> str:
     """Build a stable resource id for an MCP tool call.
 
     Bare MCP tool names (``search``, ``read``, ``query`` …) collide across servers, so a
-    faithful authorization key is server-scoped: ``"<server>/<tool>"``.
+    faithful authorization key is server-scoped: ``"<server>/<tool>"``. An embedded ``/``
+    in either segment is rejected (fail closed): ``a/b`` + ``read`` and ``a`` + ``b/read``
+    would otherwise produce the same — ambiguous — policy key.
     """
     server = server.strip().strip("/")
     tool = tool.strip().strip("/")
     if not server or not tool:
         raise AuthZENConfigError("mcp_resource_id requires non-empty server and tool")
+    if "/" in server or "/" in tool:
+        raise AuthZENConfigError("mcp_resource_id segments may not contain '/'")
     return f"{server}/{tool}"
 
 
@@ -127,7 +136,9 @@ class DefaultToolCallMapper:
             return {"_truncated": True}
         return args
 
-    def _resource(self, tool_call: NormalizedToolCall) -> Resource:
+    def _resource(
+        self, tool_call: NormalizedToolCall, request_context: Mapping[str, Any]
+    ) -> Resource:
         return Resource(
             type=self._config.resource_type,
             id=_normalize_tool_name(tool_call.name),
@@ -147,7 +158,7 @@ class DefaultToolCallMapper:
         return EvaluationRequest(
             subject=self._resolve_subject(request_context),
             action=Action(name=self._config.action_name),
-            resource=self._resource(tool_call),
+            resource=self._resource(tool_call, request_context),
             context=self._context(request_context),
         )
 
@@ -156,17 +167,29 @@ class MCPResourceMapper(DefaultToolCallMapper):
     """Mapper for genuine MCP deployments: ``resource.id = "<server>/<tool>"``.
 
     Not the default, because tool calls extracted at the LLM API layer rarely carry MCP
-    server provenance. Use when a server label is resolvable.
+    server provenance. Use when a server label is resolvable: fixed at construction, or —
+    when ``server_label`` is ``None`` — read per call from
+    ``request_context[MCP_SERVER_LABEL_KEY]`` (set by an MCP-boundary PEP such as the
+    FastMCP middleware). Fails closed when neither is available. The tool segment gets the
+    same case/whitespace normalisation as the default mapper (anti-evasion).
     """
 
-    def __init__(self, config: ScannerConfig, *, server_label: str) -> None:
+    def __init__(self, config: ScannerConfig, *, server_label: str | None = None) -> None:
         super().__init__(config)
         self._server_label = server_label
 
-    def _resource(self, tool_call: NormalizedToolCall) -> Resource:
+    def _resource(
+        self, tool_call: NormalizedToolCall, request_context: Mapping[str, Any]
+    ) -> Resource:
+        label = self._server_label or request_context.get(MCP_SERVER_LABEL_KEY)
+        if not isinstance(label, str):
+            raise AuthZENConfigError(
+                "MCPResourceMapper requires a server label (constructor or "
+                f"request_context[{MCP_SERVER_LABEL_KEY!r}])"
+            )
         return Resource(
             type="mcp_tool",
-            id=mcp_resource_id(self._server_label, tool_call.name),
+            id=mcp_resource_id(label, _normalize_tool_name(tool_call.name)),
             properties={"arguments": self._arguments(tool_call)},
         )
 

@@ -7,6 +7,24 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **FastMCP server-middleware enforcement point (`apparitor.fastmcp`, optional `[fastmcp]`
+  extra).** `FastMCPAuthorizationMiddleware` authorizes every MCP `tools/call` server-side,
+  before the tool executes, over the same `AuthorizationEngine` as the LlamaFirewall scanner
+  and the NeMo rail. The subject comes from the **validated** OAuth access token
+  (`claims["sub"]`, configurable) and outranks host-asserted subjects; a token without a
+  usable claim refuses, and the static `agent_id` fallback is gated behind an explicit
+  `allow_static_subject=True` opt-in (local/stdio only). Verdicts map fail-closed onto MCP:
+  only a clean `ALLOW` executes; `BLOCK` / `HUMAN_REVIEW` / mapper abstention / errors raise
+  a deliberately generic `ToolError` (the rich reason stays in the operator log). Supports
+  fastmcp 2.14 and 3.x (both exercised in CI).
+- `AuthorizationEngine.evaluate_normalized()` — a public seam for enforcement points that
+  receive tool calls in structured form (no provider-shape adapter detection).
+- `MCPResourceMapper` can now resolve its server label per call from
+  `request_context[MCP_SERVER_LABEL_KEY]`; the tool segment gets the same case/whitespace
+  normalisation as the default mapper, and `mcp_resource_id` rejects embedded `/` (an
+  ambiguous policy key) — fail-closed.
+- `DecisionCache` is bounded: new `cache_max_entries` config (default 10 000, FIFO
+  eviction) so per-token subject cardinality cannot grow the ALLOW cache without limit.
 - **Docker-free OpenFGA integration backend (linux/amd64).** Set `APPARITOR_OPENFGA_NATIVE=1` to run the
   OpenFGA E2E against a pinned, **SHA-256-verified** OpenFGA release binary launched directly
   (only `github.com` egress needed) instead of a container, so the real-PDP test works where
