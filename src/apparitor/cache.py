@@ -46,10 +46,12 @@ class DecisionCache:
         *,
         ttl_s: float,
         max_ttl_s: float,
+        max_entries: int = 10_000,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._ttl_s = min(ttl_s, max_ttl_s)
         self._max_ttl_s = max_ttl_s
+        self._max_entries = max(1, max_entries)
         self._clock = clock
         self._entries: dict[str, float] = {}
 
@@ -68,6 +70,11 @@ class DecisionCache:
         ttl = self._ttl_s if pdp_ttl_s is None else min(pdp_ttl_s, self._max_ttl_s)
         if ttl <= 0:
             return
+        if key not in self._entries and len(self._entries) >= self._max_entries:
+            # Bound memory on long-lived hosts: per-subject keys (e.g. per-token MCP
+            # subjects) multiply cardinality. FIFO eviction is enough for a short-TTL
+            # ALLOW-only cache — an evicted entry just costs one PDP round trip.
+            del self._entries[next(iter(self._entries))]
         self._entries[key] = self._clock() + ttl
 
     def clear(self) -> None:

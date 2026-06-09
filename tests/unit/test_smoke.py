@@ -73,6 +73,21 @@ def test_nemo_adapter_without_nemoguardrails_raises_missing_dependency() -> None
         assert NeMoAuthorizationRails.__name__ == "NeMoAuthorizationRails"
 
 
+def test_fastmcp_adapter_without_fastmcp_raises_missing_dependency() -> None:
+    from apparitor.errors import MissingDependencyError
+
+    try:
+        import fastmcp  # noqa: F401
+    except ImportError:
+        with pytest.raises(MissingDependencyError):
+            importlib.import_module("apparitor.fastmcp")
+    else:
+        # fastmcp is installed; the module imports and exposes the middleware adapter.
+        from apparitor.fastmcp import FastMCPAuthorizationMiddleware
+
+        assert FastMCPAuthorizationMiddleware.__name__ == "FastMCPAuthorizationMiddleware"
+
+
 def test_single_evaluation_request_roundtrips_spec_json() -> None:
     from apparitor.models import EvaluationRequest
 

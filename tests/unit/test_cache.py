@@ -58,3 +58,23 @@ def test_clear() -> None:
     cache.set_allow("k")
     cache.clear()
     assert cache.get("k") is None
+
+
+def test_max_entries_bounds_cache_with_fifo_eviction() -> None:
+    # Per-subject keys multiply cardinality on long-lived hosts; the cap must hold.
+    cache = DecisionCache(ttl_s=10, max_ttl_s=300, max_entries=2, clock=lambda: 0.0)
+    cache.set_allow("a")
+    cache.set_allow("b")
+    cache.set_allow("c")  # evicts "a" (oldest insertion)
+    assert cache.get("a") is None
+    assert cache.get("b") is True
+    assert cache.get("c") is True
+
+
+def test_refreshing_existing_key_at_cap_does_not_evict() -> None:
+    cache = DecisionCache(ttl_s=10, max_ttl_s=300, max_entries=2, clock=lambda: 0.0)
+    cache.set_allow("a")
+    cache.set_allow("b")
+    cache.set_allow("a")  # refresh, not insert — "b" must survive
+    assert cache.get("a") is True
+    assert cache.get("b") is True
