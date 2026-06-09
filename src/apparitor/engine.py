@@ -114,6 +114,45 @@ class AuthorizationEngine:
         self._emit(result, requests, latency_s)
         return result
 
+    async def evaluate_requests(self, requests: list[EvaluationRequest] | None) -> VerdictResult:
+        """Authorize pre-mapped evaluation requests and return a single verdict.
+
+        The seam for enforcement points whose actions are not tool calls (e.g. MCP
+        resource reads and prompt gets): the adapter shapes the AuthZEN tuple itself —
+        including the trusted subject — and still gets the engine's fail-closed error
+        tables, ALLOW-only cache, metrics and decision log.
+        """
+        if not requests:  # nothing to authorize — no decision to time or count
+            return VerdictResult(Verdict.SKIP, _SKIP_REASON, VerdictStatus.SKIPPED)
+
+        started = time.perf_counter()
+        result = await self._evaluate_guarded(requests)
+        latency_s = time.perf_counter() - started
+        self._emit(result, requests, latency_s)
+        return result
+
+    async def evaluate_each(
+        self,
+        calls: list[NormalizedToolCall] | None,
+        request_context: Mapping[str, Any] | None = None,
+    ) -> list[VerdictResult]:
+        """Authorize each call independently and return one verdict per call, positionally.
+
+        For visibility filtering (e.g. shaping an MCP ``tools/list``), where a deny for one
+        item must not block its siblings. Fail-closed per item: a mapper abstention or any
+        evaluation fault yields BLOCK for the affected items — callers hide, never widen.
+        One batch PDP round trip; the ALLOW-only cache is not consulted (the aggregate
+        enforcement entrypoints own that hot path), and there is no per-subject decision
+        log — these are advisory visibility decisions, counted in metrics only.
+        """
+        if not calls:
+            return []
+        started = time.perf_counter()
+        results = await self._decide_each(calls, request_context or {})
+        latency_s = time.perf_counter() - started
+        self._emit_each(results, latency_s)
+        return results
+
     def _emit(
         self, result: VerdictResult, requests: list[EvaluationRequest], latency_s: float
     ) -> None:
@@ -155,20 +194,100 @@ class AuthorizationEngine:
         if not requests:  # every mapper abstained
             return VerdictResult(Verdict.SKIP, _SKIP_REASON, VerdictStatus.SKIPPED), []
 
+        return await self._evaluate_guarded(requests), requests
+
+    async def _evaluate_guarded(self, requests: list[EvaluationRequest]) -> VerdictResult:
+        """Evaluate with the fail-closed error tables (never raises, never ALLOW on error)."""
         try:
-            return await self._evaluate(requests), requests
+            return await self._evaluate(requests)
+        except AuthZENClientError as exc:
+            return VerdictResult(Verdict.BLOCK, f"{_DENY_REASON} ({exc})", VerdictStatus.ERROR)
+        except AuthZENServiceError as exc:
+            verdict = resolve_error(self._config.on_error, f"PDP unavailable: {exc}")
+            logger.warning("authzen: PDP error, resolved as %s", verdict.verdict.value)
+            return verdict
+        except Exception:
+            # Defense in depth: any unexpected internal error fails closed, never ALLOW.
+            logger.exception("authzen: unexpected internal error during evaluation")
+            return VerdictResult(
+                Verdict.BLOCK, f"{_DENY_REASON} (internal error)", VerdictStatus.ERROR
+            )
+
+    async def _decide_each(
+        self, calls: list[NormalizedToolCall], ctx: Mapping[str, Any]
+    ) -> list[VerdictResult]:
+        try:
+            mapped = [self._mapper.map(call, ctx) for call in calls]
+        except AuthZENConfigError as exc:
+            failed = VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR)
+            return [failed] * len(calls)
+
+        # Abstained items stay BLOCK so positions align and abstention can never reveal.
+        results = [
+            VerdictResult(Verdict.BLOCK, "mapper abstained (fail closed)", VerdictStatus.ERROR)
+        ] * len(calls)
+        indexed = [(i, request) for i, request in enumerate(mapped) if request is not None]
+        if not indexed:
+            return results
+
+        try:
+            response = await self._client.evaluate_batch(
+                BatchEvaluationRequest(
+                    evaluations=[
+                        EvaluationItem(
+                            subject=r.subject,
+                            action=r.action,
+                            resource=r.resource,
+                            context=r.context,
+                        )
+                        for _, r in indexed
+                    ],
+                    options=EvaluationsOptions(),
+                )
+            )
         except AuthZENClientError as exc:
             verdict = VerdictResult(Verdict.BLOCK, f"{_DENY_REASON} ({exc})", VerdictStatus.ERROR)
         except AuthZENServiceError as exc:
             verdict = resolve_error(self._config.on_error, f"PDP unavailable: {exc}")
             logger.warning("authzen: PDP error, resolved as %s", verdict.verdict.value)
         except Exception:
-            # Defense in depth: any unexpected internal error fails closed, never ALLOW.
             logger.exception("authzen: unexpected internal error during evaluation")
             verdict = VerdictResult(
                 Verdict.BLOCK, f"{_DENY_REASON} (internal error)", VerdictStatus.ERROR
             )
-        return verdict, requests
+        else:
+            if len(response.evaluations) == len(indexed):
+                for (i, _), item in zip(indexed, response.evaluations, strict=True):
+                    single = map_single(
+                        item.decision, wants_review=self._wants_review(item.context)
+                    )
+                    results[i] = VerdictResult(single, _reason_for(single))
+                return results
+            # Non-conformant PDP (short/long array): nothing in the batch is trustworthy.
+            verdict = VerdictResult(
+                Verdict.BLOCK, f"{_DENY_REASON} (mismatched batch)", VerdictStatus.ERROR
+            )
+        for i, _ in indexed:
+            results[i] = verdict
+        return results
+
+    def _emit_each(self, results: list[VerdictResult], latency_s: float) -> None:
+        """Best-effort metrics for per-item decisions; one counter per item, batch latency.
+
+        Same isolation as :meth:`_emit` — observability can never alter a verdict.
+        """
+        try:
+            for result in results:
+                self.metrics.record_decision(
+                    verdict=result.verdict.value, status=result.status.value, latency_s=latency_s
+                )
+            logger.info(
+                "authzen per-item decisions verdicts=%s latency_ms=%.1f",
+                [r.verdict.value for r in results],
+                latency_s * 1000,
+            )
+        except Exception:
+            logger.exception("authzen: metrics/log emission failed (verdict unaffected)")
 
     def _build_requests(
         self, tool_calls: list[NormalizedToolCall], ctx: Mapping[str, Any]

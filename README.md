@@ -97,10 +97,14 @@ server = FastMCP("files", auth=my_token_verifier)   # auth supplies the validate
 server.add_middleware(FastMCPAuthorizationMiddleware(pdp_url="https://pdp.internal"))
 ```
 
-Register the middleware **after** any custom auth middleware (so the token is populated);
-it gates `tools/call` only (resource reads and prompts are not yet authorized), and under
-server composition pin `server_label` for stable policy keys. FastMCP never tears middleware
-down, so call `await middleware.aclose()` on shutdown to release the PDP client.
+Register the middleware **after** any custom auth middleware (so the token is populated).
+It gates `tools/call`, `resources/read` (action `resource.read`), and `prompts/get`
+(action `prompt.get`) by default — `gate_resources`/`gate_prompts` opt a hook out — and
+can additionally hide unauthorized tools from `tools/list` with `filter_listings=True`
+(advisory; `tools/call` remains the enforcement invariant). Client-credentials tokens can
+be authorized as distinct `workload` subjects via `allow_workload_subject=True`. Under
+server composition pin `server_label` for stable policy keys. FastMCP never tears
+middleware down, so call `await middleware.aclose()` on shutdown to release the PDP client.
 
 The AuthZEN client and models are **adapter-free** and usable on their own:
 
