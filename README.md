@@ -80,9 +80,35 @@ firewall = LlamaFirewall(scanners={Role.ASSISTANT: [scanner]})
 result = await firewall.scan_async(assistant_message)   # ALLOW / BLOCK / HUMAN_IN_THE_LOOP
 ```
 
-Per request, resolve the real end user the agent acts for (recommended over a static
-`agent_id`). Use `subject_scope` so the identity is always reset and can never leak to a
-later request that reuses the same task/event loop:
+Per request, supply the real end user the agent acts for (recommended over a static
+`agent_id`) — see [Identity: who the agent acts for](#identity-who-the-agent-acts-for).
+
+The AuthZEN client and models are **firewall-free** and usable on their own:
+
+```python
+from apparitor.models import EvaluationRequest   # no firewall dependency needed
+```
+
+## Identity: who the agent acts for
+
+Every decision needs a **subject** — the principal your policy is written against. apparitor
+never infers it from model or tool output (that would be a [confused
+deputy](https://en.wikipedia.org/wiki/Confused_deputy_problem)); the **host** supplies it,
+request-scoped, because the firewall layer sees messages, not an authenticated principal.
+There are two levels, and the same seam feeds either adapter (the LlamaFirewall scanner or
+the NeMo rail).
+
+**Level 0 — a static agent identity.** Set `agent_id`; every call is authorized as that
+agent. Enough for policies that don't depend on the end user — *"no agent may call a
+destructive tool"*:
+
+```python
+scanner = AuthZENScanner(config=ScannerConfig(pdp_url="https://pdp.internal", agent_id="travel-bot"))
+```
+
+**Level 1 — the real end user, per request (recommended).** Where your host already
+authenticated the user, bind it for the agent run with `subject_scope`. It resets the value
+on exit, so a subject can never leak to a later request that reuses the same task/event loop:
 
 ```python
 from apparitor import Subject, subject_scope
@@ -91,11 +117,15 @@ with subject_scope(Subject(type="user", id="alice@acme.com")):
     result = await firewall.scan_async(assistant_message)
 ```
 
-The AuthZEN client and models are **firewall-free** and usable on their own:
+With neither a request-context `subject` nor `current_subject` set and no `agent_id`, the
+scan fails **closed**. Request-scoped attributes (`user_id`, `conversation_id`, …) can ride
+along as AuthZEN `context` for policy conditions — see
+[docs/setup.md](docs/setup.md#identity-resolving-the-subject) for the full resolution order
+and a request-context example.
 
-```python
-from apparitor.models import EvaluationRequest   # no firewall dependency needed
-```
+> Enforcement points that carry a *validated* identity of their own — e.g. an MCP server
+> holding the caller's OAuth token — populate this same subject seam; see the
+> [roadmap](ROADMAP.md).
 
 ## Observability
 
