@@ -78,12 +78,13 @@ def mcp_resource_id(server: str, tool: str) -> str:
     """Build a stable resource id for an MCP tool call.
 
     Bare MCP tool names (``search``, ``read``, ``query`` …) collide across servers, so a
-    faithful authorization key is server-scoped: ``"<server>/<tool>"``. An embedded ``/``
-    in either segment is rejected (fail closed): ``a/b`` + ``read`` and ``a`` + ``b/read``
-    would otherwise produce the same — ambiguous — policy key.
+    faithful authorization key is server-scoped: ``"<server>/<tool>"``. Any ``/`` in a
+    segment is rejected (fail closed) rather than stripped: ``a/b`` + ``read`` and ``a`` +
+    ``b/read`` would otherwise collide, and aliasing ``read`` / ``/read`` onto one policy key
+    would silently widen an ALLOW.
     """
-    server = server.strip().strip("/")
-    tool = tool.strip().strip("/")
+    server = server.strip()
+    tool = tool.strip()
     if not server or not tool:
         raise AuthZENConfigError("mcp_resource_id requires non-empty server and tool")
     if "/" in server or "/" in tool:
@@ -181,7 +182,11 @@ class MCPResourceMapper(DefaultToolCallMapper):
     def _resource(
         self, tool_call: NormalizedToolCall, request_context: Mapping[str, Any]
     ) -> Resource:
-        label = self._server_label or request_context.get(MCP_SERVER_LABEL_KEY)
+        label = (
+            self._server_label
+            if self._server_label is not None
+            else request_context.get(MCP_SERVER_LABEL_KEY)
+        )
         if not isinstance(label, str):
             raise AuthZENConfigError(
                 "MCPResourceMapper requires a server label (constructor or "

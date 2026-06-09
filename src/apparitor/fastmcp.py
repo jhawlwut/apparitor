@@ -25,8 +25,11 @@ Subject resolution (first match wins; no match refuses the call):
 
 The default mapper is :class:`~apparitor.mapping.MCPResourceMapper`, so the resource id is
 server-scoped (``"<server>/<tool>"``): ``server_label`` if given, else the name of the
-FastMCP server the call arrived on. Renaming the server therefore changes resource ids
-(and ALLOW-cache keys) — pin ``server_label`` where policies must outlive a rename.
+FastMCP server the call arrived on. Renaming the server changes resource ids (and
+ALLOW-cache keys), and under server composition (``mount``) the derived name is not stable
+across the supported FastMCP range — a child-mounted server is seen as the parent's name on
+2.14 but the child's on 3.x. **Pin ``server_label`` whenever the server may be renamed or
+mounted** so policy keys stay stable.
 
 Verdict mapping is fail-closed: only a clean ``ALLOW`` reaches the tool. ``BLOCK``,
 ``HUMAN_REVIEW`` (MCP has no human-in-the-loop pause; refusal is surfaced distinctly so a
@@ -163,12 +166,28 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
             # Defense in depth: an adapter-level fault must refuse, never execute. The
             # generic message is deliberate — exception text must not reach the client.
             logger.exception("apparitor: FastMCP authorization middleware error (refusing)")
+            self._record_refusal()
             raise ToolError(_DENY_MESSAGE) from None
         if verdict is not None and _is_allowed(verdict):
             return await call_next(context)
-        if verdict is not None and verdict.verdict is Verdict.HUMAN_REVIEW:
+        if verdict is None:
+            # No resolvable subject: the engine never ran, so this refusal is invisible to
+            # its metrics unless we count it here (else an all-misconfigured fleet logs zero).
+            self._record_refusal()
+            raise ToolError(_DENY_MESSAGE)
+        if verdict.verdict is Verdict.HUMAN_REVIEW:
             raise ToolError(_REVIEW_MESSAGE)
         raise ToolError(_DENY_MESSAGE)
+
+    def _record_refusal(self) -> None:
+        """Count a pre-engine refusal (no subject / adapter fault) as a BLOCK+ERROR decision.
+
+        Best-effort and isolated: a faulty sink must never turn a refusal into an execution.
+        """
+        try:
+            self._engine.metrics.record_decision(verdict="block", status="error", latency_s=0.0)
+        except Exception:
+            logger.exception("apparitor: refusal metric emission failed (verdict unaffected)")
 
     async def _authorize(
         self, context: MiddlewareContext[mt.CallToolRequestParams]
@@ -178,9 +197,8 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
         subject = self._resolve_subject(ctx)
         if subject is None:
             return None
-        # The resolved subject is injected explicitly (the mapper consults
-        # request_context["subject"] first), so a validated token always wins over any
-        # ambient or host-provided value.
+        # Injected explicitly: the mapper reads request_context["subject"] first, so a
+        # validated token outranks any ambient or host-provided value.
         ctx["subject"] = subject
         if self._server_label is not None:
             ctx[MCP_SERVER_LABEL_KEY] = self._server_label

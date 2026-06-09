@@ -76,29 +76,34 @@ async def test_allowed_call_executes(make_config, respx_mock) -> None:
 
 @pytest.mark.asyncio
 async def test_denied_call_refused_with_generic_reason(make_config, respx_mock) -> None:
-    respx_mock.post(_EVAL_URL).respond(json={"decision": False})
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": False})
     async with FastMCPAuthorizationMiddleware(config=make_config()) as guard:
         with subject_scope(_ALICE):
             async with Client(_server(guard)) as client:
                 with pytest.raises(ToolError, match="not authorized"):
                     await client.call_tool("read_file", {"path": "/etc/passwd"})
+    # The PDP was actually consulted — proving this is a genuine deny, not a subject-
+    # resolution refusal that raises the same generic message without a round trip.
+    assert route.call_count == 1
 
 
 @pytest.mark.asyncio
 async def test_pdp_error_fails_closed_without_leaking_detail(make_config, respx_mock) -> None:
     # PDP unreachable → BLOCK(status=ERROR) → refuse. The client-visible message must not
     # carry the engine's reason (PDP host, exception text, config hints).
-    respx_mock.post(_EVAL_URL).respond(status_code=503)
+    route = respx_mock.post(_EVAL_URL).respond(status_code=503)
     guard = FastMCPAuthorizationMiddleware(config=make_config(max_retries=0))
     async with guard:
         with subject_scope(_ALICE):
             async with Client(_server(guard)) as client:
                 with pytest.raises(ToolError) as excinfo:
                     await client.call_tool("read_file", {"path": "/tmp/a"})
-    message = str(excinfo.value)
+    assert route.call_count == 1  # reached the PDP, not a pre-engine refusal
+    message = str(excinfo.value).lower()
     assert "not authorized" in message
-    for fragment in ("pdp", "503", "http", "subject", "config"):
-        assert fragment not in message.lower()
+    # None of the engine's reason text ("PDP unavailable: ...503...", "retr"y hints) leaks.
+    for fragment in ("pdp", "unavailable", "503", "http", "retr", "subject", "config"):
+        assert fragment not in message
 
 
 @pytest.mark.asyncio
@@ -229,17 +234,95 @@ async def test_list_tools_passes_ungated(make_config, respx_mock) -> None:
 
 @pytest.mark.asyncio
 async def test_concurrent_requests_use_their_own_token_subject(make_config, respx_mock) -> None:
-    # Two interleaved sessions with distinct tokens must never cross-contaminate the
-    # subject sent to the PDP (contextvar isolation under asyncio concurrency).
+    # Two interleaved sessions against ONE shared server/guard with distinct tokens must
+    # never cross-contaminate the subject sent to the PDP — contextvar isolation under
+    # asyncio concurrency, exercised on a single long-lived server instance.
     route = respx_mock.post(_EVAL_URL).respond(json={"decision": True})
     guard = FastMCPAuthorizationMiddleware(config=make_config())
+    server = _server(guard)
 
     async def call_as(sub: str) -> None:
         with _token({"sub": sub}, client_id=f"client-{sub}"):
-            async with Client(_server(guard)) as client:
+            async with Client(server) as client:
                 await client.call_tool("read_file", {"path": f"/home/{sub}"})
 
     async with guard:
         await asyncio.gather(call_as("bob@acme.com"), call_as("carol@acme.com"))
     subjects = {json.loads(call.request.content)["subject"]["id"] for call in route.calls}
     assert subjects == {"bob@acme.com", "carol@acme.com"}
+
+
+@pytest.mark.asyncio
+async def test_adapter_fault_refuses_without_leaking_or_executing(make_config, respx_mock) -> None:
+    # The defense-in-depth catch-all: a fault the engine doesn't map (here a mapper raising
+    # a non-AuthZENConfigError) must refuse with the generic message — never execute the
+    # tool, never let the exception text reach the client.
+    route = respx_mock.post(_EVAL_URL)
+
+    class BoomMapper:
+        def map(self, tool_call, request_context):
+            raise RuntimeError("secret-internal-detail")
+
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), mapper=BoomMapper())
+    async with guard, Client(_server(guard)) as client:
+        with subject_scope(_ALICE), pytest.raises(ToolError) as excinfo:
+            await client.call_tool("read_file", {"path": "/tmp/a"})
+    assert route.call_count == 0
+    assert "secret-internal-detail" not in str(excinfo.value)
+    assert "not authorized" in str(excinfo.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_subject_from_request_context_when_no_token(make_config, respx_mock) -> None:
+    # Resolution step 2: a host-injected trusted subject (no token, no ambient scope).
+    from apparitor.mapping import current_request_context
+
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": True})
+    async with FastMCPAuthorizationMiddleware(config=make_config(agent_id=None)) as guard:
+        reset = current_request_context.set({"subject": Subject(type="svc", id="s-1")})
+        try:
+            async with Client(_server(guard)) as client:
+                await client.call_tool("read_file", {"path": "/tmp/a"})
+        finally:
+            current_request_context.reset(reset)
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["subject"]["id"] == "s-1"
+
+
+@pytest.mark.asyncio
+async def test_configurable_subject_claim_and_type(make_config, respx_mock) -> None:
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": True})
+    guard = FastMCPAuthorizationMiddleware(
+        config=make_config(), subject_claim="email", subject_type="person"
+    )
+    async with guard:
+        with _token({"email": "dana@acme.com"}):
+            async with Client(_server(guard)) as client:
+                await client.call_tool("read_file", {"path": "/tmp/a"})
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["subject"]["type"] == "person"
+    assert sent["subject"]["id"] == "dana@acme.com"
+
+
+@pytest.mark.asyncio
+async def test_mounted_server_uses_pinned_label_for_stable_key(make_config, respx_mock) -> None:
+    # Under composition the server name the middleware sees differs across FastMCP versions,
+    # so a pinned server_label is the documented way to keep policy keys stable. The mounted
+    # tool is exposed under the prefix; the resource id must be "<label>/<prefixed tool>".
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": True})
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), server_label="gateway")
+    parent = FastMCP("parent")
+    parent.add_middleware(guard)
+    child = FastMCP("child")
+
+    @child.tool
+    def read_file(path: str) -> str:
+        return path
+
+    parent.mount(child, prefix="files")
+    async with guard:
+        with subject_scope(_ALICE):
+            async with Client(parent) as client:
+                await client.call_tool("files_read_file", {"path": "/tmp/a"})
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["resource"]["id"] == "gateway/files_read_file"

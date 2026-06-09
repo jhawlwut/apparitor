@@ -77,6 +77,10 @@ All notable changes to this project are documented here. The format follows
 - **Spec fix:** the batch options field is now `evaluations_semantic` (plural), matching
   AuthZEN 1.0; it was previously serialised as `evaluation_semantic`. Renames
   `EvaluationsOptions.evaluation_semantic` → `evaluations_semantic` (pre-alpha, breaking).
+- `DefaultToolCallMapper._resource` takes the request context (so `MCPResourceMapper` can
+  resolve a per-call server label). A custom mapper subclass overriding the protected
+  `_resource` must adopt the new signature; the public `ToolCallMapper.map` contract is
+  unchanged.
 
 ### Not yet implemented
 

@@ -150,6 +150,16 @@ def test_mcp_mapper_without_label_fails_closed(make_config) -> None:
         MCPResourceMapper(make_config()).map(_call("read"), {})
 
 
+def test_mcp_mapper_empty_constructor_label_fails_closed_not_context(make_config) -> None:
+    # An explicit "" label is a misconfiguration: it must fail closed, not silently fall
+    # through to the request-context label (constructor precedence is `is not None`).
+    from apparitor.mapping import MCP_SERVER_LABEL_KEY
+
+    mapper = MCPResourceMapper(make_config(), server_label="")
+    with pytest.raises(AuthZENConfigError):
+        mapper.map(_call("read"), {MCP_SERVER_LABEL_KEY: "files"})
+
+
 def test_mcp_mapper_normalizes_tool_segment(make_config) -> None:
     # Same case/whitespace anti-evasion as the default mapper's resource id.
     req = MCPResourceMapper(make_config(), server_label="files").map(_call("  Read  "), {})
