@@ -1,8 +1,10 @@
-"""AuthZEN PDP client (LlamaFirewall-free, async-first).
+"""HTTP transport + AuthZEN PDP client (LlamaFirewall-free, async-first).
 
-Owns transport and the AuthZEN wire shape only — decision-to-verdict mapping lives in the
-engine. The scanner holds one long-lived, pooled ``httpx.AsyncClient`` across calls and
-closes it via :meth:`AuthZENClient.aclose`.
+:class:`HTTPDecisionTransport` owns the hardened transport shared by every HTTP decision
+backend: a pooled ``httpx.AsyncClient``, the SSRF guard, bounded retries within the request
+budget, and httpx-exception mapping. :class:`AuthZENClient` builds the AuthZEN wire shape on
+top of it; the native :class:`~apparitor.backends.OPABackend` reuses the same transport so
+the security controls are defined once, never duplicated.
 
 * **Async only.** No ``asyncio.run`` — it would crash inside a running event loop.
 * **Bring-your-own client.** Pass a pre-configured ``httpx.AsyncClient`` to own
@@ -48,6 +50,7 @@ if TYPE_CHECKING:
 _RETRY_STATUS = frozenset({429, 502, 503, 504})
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
+_TransportT = TypeVar("_TransportT", bound="HTTPDecisionTransport")
 
 
 def validate_pdp_url(url: str, *, allow_insecure: bool) -> None:
@@ -85,8 +88,9 @@ def validate_pdp_url(url: str, *, allow_insecure: bool) -> None:
         raise AuthZENConfigError(f"pdp_url host {host} is private/link-local; refusing (SSRF)")
 
 
-class AuthZENClient:
-    """Async client for the AuthZEN Access Evaluation API."""
+class HTTPDecisionTransport:
+    """Pooled, SSRF-guarded HTTP transport with bounded retries — the base for every
+    HTTP decision backend. Subclasses add the engine-specific request/response shaping."""
 
     def __init__(
         self,
@@ -120,18 +124,6 @@ class AuthZENClient:
             # guard, which only validates the configured pdp_url.
             follow_redirects=False,
         )
-
-    async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
-        """``POST /access/v1/evaluation`` — evaluate a single tuple."""
-        payload = request.model_dump(mode="json", exclude_none=True)
-        data = await self._post(self._config.evaluation_path, payload)
-        return _parse(data, EvaluationResponse)
-
-    async def evaluate_batch(self, request: BatchEvaluationRequest) -> BatchEvaluationResponse:
-        """``POST /access/v1/evaluations`` — evaluate a batch (multi-step plan)."""
-        payload = request.model_dump(mode="json", exclude_none=True)
-        data = await self._post(self._config.batch_path, payload)
-        return _parse(data, BatchEvaluationResponse)
 
     async def _post(self, path: str, payload: dict[str, Any]) -> object:
         cfg = self._config
@@ -184,11 +176,27 @@ class AuthZENClient:
         if self._owns_http:
             await self._http.aclose()
 
-    async def __aenter__(self) -> AuthZENClient:
+    async def __aenter__(self: _TransportT) -> _TransportT:
         return self
 
     async def __aexit__(self, *exc: object) -> None:
         await self.aclose()
+
+
+class AuthZENClient(HTTPDecisionTransport):
+    """Async client for the AuthZEN Access Evaluation API."""
+
+    async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
+        """``POST /access/v1/evaluation`` — evaluate a single tuple."""
+        payload = request.model_dump(mode="json", exclude_none=True)
+        data = await self._post(self._config.evaluation_path, payload)
+        return _parse(data, EvaluationResponse)
+
+    async def evaluate_batch(self, request: BatchEvaluationRequest) -> BatchEvaluationResponse:
+        """``POST /access/v1/evaluations`` — evaluate a batch (multi-step plan)."""
+        payload = request.model_dump(mode="json", exclude_none=True)
+        data = await self._post(self._config.batch_path, payload)
+        return _parse(data, BatchEvaluationResponse)
 
 
 def _handle_status(response: httpx.Response) -> object:
