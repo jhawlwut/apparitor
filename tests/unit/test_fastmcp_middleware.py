@@ -233,7 +233,7 @@ async def test_mapper_abstention_refuses(make_config, respx_mock) -> None:
 
 @pytest.mark.asyncio
 async def test_list_tools_passes_ungated(make_config, respx_mock) -> None:
-    # v1 gates tools/call only; listings pass through without a subject or a PDP trip.
+    # Listing filter is opt-in (default off): listings pass through, no subject, no PDP.
     route = respx_mock.post(_EVAL_URL)
     guard = FastMCPAuthorizationMiddleware(config=make_config())
     async with guard, Client(_server(guard)) as client:
@@ -439,12 +439,13 @@ async def test_resource_read_gated_and_allowed(make_config, respx_mock) -> None:
 
 @pytest.mark.asyncio
 async def test_resource_read_denied_with_generic_reason(make_config, respx_mock) -> None:
-    respx_mock.post(_EVAL_URL).respond(json={"decision": False})
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": False})
     async with FastMCPAuthorizationMiddleware(config=make_config()) as guard:
         with subject_scope(_ALICE):
             async with Client(_server(guard)) as client:
                 with pytest.raises(McpError, match="not authorized"):
                     await client.read_resource("resource://config")
+    assert route.call_count == 1  # a genuine PDP deny, not a subject-resolution refusal
 
 
 @pytest.mark.asyncio
@@ -494,12 +495,13 @@ async def test_prompt_gated_and_allowed_with_server_scoped_key(make_config, resp
 
 @pytest.mark.asyncio
 async def test_prompt_denied_with_generic_reason(make_config, respx_mock) -> None:
-    respx_mock.post(_EVAL_URL).respond(json={"decision": False})
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": False})
     async with FastMCPAuthorizationMiddleware(config=make_config()) as guard:
         with subject_scope(_ALICE):
             async with Client(_server(guard)) as client:
                 with pytest.raises(McpError, match="not authorized"):
                     await client.get_prompt("greet", {"name": "Bo"})
+    assert route.call_count == 1  # a genuine PDP deny, not a subject-resolution refusal
 
 
 @pytest.mark.asyncio
@@ -510,3 +512,107 @@ async def test_prompt_gate_opt_out_passes_ungated(make_config, respx_mock) -> No
         result = await client.get_prompt("greet", {"name": "Bo"})
     assert "Hello Bo" in str(result)
     assert route.call_count == 0
+
+
+# --- panel-review hardening cases -----------------------------------------------------
+
+
+def test_workload_subject_type_is_reserved(make_config) -> None:
+    with pytest.raises(ValueError, match="reserved"):
+        FastMCPAuthorizationMiddleware(config=make_config(), subject_type="workload")
+    with pytest.raises(ValueError, match="reserved"):
+        FastMCPAuthorizationMiddleware(
+            config=make_config(subject_type="workload"), allow_static_subject=True
+        )
+
+
+@pytest.mark.asyncio
+async def test_workload_with_empty_client_id_refuses(make_config, respx_mock) -> None:
+    route = respx_mock.post(_EVAL_URL)
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), allow_workload_subject=True)
+    async with guard:
+        with _token({"azp": "machine"}, client_id="  "):
+            async with Client(_server(guard)) as client:
+                with pytest.raises(ToolError, match="not authorized"):
+                    await client.call_tool("read_file", {"path": "/tmp/a"})
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_prompt_pdp_error_fails_closed_without_leaking_detail(
+    make_config, respx_mock
+) -> None:
+    route = respx_mock.post(_EVAL_URL).respond(status_code=503)
+    guard = FastMCPAuthorizationMiddleware(config=make_config(max_retries=0))
+    async with guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                with pytest.raises(McpError) as excinfo:
+                    await client.get_prompt("greet", {"name": "Bo"})
+    assert route.call_count == 1
+    message = str(excinfo.value).lower()
+    assert "not authorized" in message
+    for fragment in ("pdp", "unavailable", "503", "http", "retr"):
+        assert fragment not in message
+
+
+@pytest.mark.asyncio
+async def test_resource_human_review_refuses_distinctly(make_config, respx_mock) -> None:
+    respx_mock.post(_EVAL_URL).respond(json={"decision": True, "context": {"step_up": True}})
+    guard = FastMCPAuthorizationMiddleware(
+        config=make_config(), review_predicate=lambda ctx: bool(ctx.get("step_up"))
+    )
+    async with guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                with pytest.raises(McpError, match="human approval"):
+                    await client.read_resource("resource://config")
+
+
+@pytest.mark.asyncio
+async def test_prompt_name_with_separator_refuses(make_config, respx_mock) -> None:
+    # An embedded "/" would make an ambiguous policy key; mcp_resource_id rejects it and
+    # the refusal happens before any PDP trip.
+    route = respx_mock.post(_EVAL_URL)
+    async with FastMCPAuthorizationMiddleware(config=make_config()) as guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                with pytest.raises(McpError, match="not authorized"):
+                    await client.get_prompt("weird/name", {})
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_filter_listings_uses_call_time_keys_under_mount(make_config, respx_mock) -> None:
+    # The listing filter must evaluate the SAME policy key the call gate will: the
+    # client-visible (mount-prefixed) tool name — on both supported FastMCP lines, which
+    # disagree about where that name lives on the listed Tool object.
+    seen_ids: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        seen_ids.extend(item["resource"]["id"] for item in body["evaluations"])
+        return httpx.Response(
+            200, json={"evaluations": [{"decision": True}] * len(body["evaluations"])}
+        )
+
+    respx_mock.post(_BATCH_URL).mock(side_effect=respond)
+    guard = FastMCPAuthorizationMiddleware(
+        config=make_config(), server_label="gateway", filter_listings=True
+    )
+    parent = FastMCP("parent")
+    parent.add_middleware(guard)
+    child = FastMCP("child")
+
+    @child.tool
+    def read_file(path: str) -> str:
+        return path
+
+    parent.mount(child, prefix="files")
+    async with guard:
+        with subject_scope(_ALICE):
+            async with Client(parent) as client:
+                tools = await client.list_tools()
+    assert [tool.name for tool in tools] == ["files_read_file"]
+    # Identical to the resource id the mounted-call test pins for on_call_tool.
+    assert seen_ids == ["gateway/files_read_file"]

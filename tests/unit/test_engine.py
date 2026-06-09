@@ -505,3 +505,89 @@ async def test_evaluate_each_missing_subject_blocks_all(
     )
     assert all(r.verdict is Verdict.BLOCK and r.status is VerdictStatus.ERROR for r in results)
     assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_client_error_blocks_all(make_config, noop_sleep, respx_mock) -> None:
+    # A 4xx is OUR fault — hard BLOCK for every item, never resolved through on_error.
+    respx_mock.post(_BATCH_URL).respond(status_code=400)
+    engine = _engine(make_config(max_retries=0, on_error="human_review"), noop_sleep)
+    results = await engine.evaluate_each(_normalized("a", "b"))
+    assert all(r.verdict is Verdict.BLOCK and r.status is VerdictStatus.ERROR for r in results)
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_unexpected_error_blocks_all(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    respx_mock.post(_BATCH_URL).mock(side_effect=RuntimeError("boom"))
+    results = await _engine(make_config(max_retries=0), noop_sleep).evaluate_each(
+        _normalized("a", "b")
+    )
+    assert all(r.verdict is Verdict.BLOCK and r.status is VerdictStatus.ERROR for r in results)
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_all_abstain_blocks_without_pdp(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    class AbstainAll:
+        def map(self, tool_call, request_context):
+            return None
+
+    route = respx_mock.post(_BATCH_URL)
+    engine = _engine(make_config(), noop_sleep, mapper=AbstainAll())
+    results = await engine.evaluate_each(_normalized("a", "b"))
+    assert all(r.verdict is Verdict.BLOCK and r.status is VerdictStatus.ERROR for r in results)
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_raising_predicate_fails_closed(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    # The per-item path must swallow a faulty review predicate exactly like the aggregate
+    # path does — never raise, never ALLOW.
+    def boom(_ctx: dict) -> bool:
+        raise RuntimeError("predicate bug")
+
+    respx_mock.post(_BATCH_URL).respond(
+        json={"evaluations": [{"decision": True, "context": {"x": 1}}, {"decision": True}]}
+    )
+    engine = _engine(make_config(), noop_sleep, review_predicate=boom)
+    results = await engine.evaluate_each(_normalized("a", "b"))
+    assert all(r.verdict is Verdict.BLOCK and r.status is VerdictStatus.ERROR for r in results)
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_raising_mapper_fails_closed(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    class BoomMapper:
+        def map(self, tool_call, request_context):
+            raise RuntimeError("mapper bug")
+
+    route = respx_mock.post(_BATCH_URL)
+    engine = _engine(make_config(), noop_sleep, mapper=BoomMapper())
+    results = await engine.evaluate_each(_normalized("a", "b"))
+    assert all(r.verdict is Verdict.BLOCK and r.status is VerdictStatus.ERROR for r in results)
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_metrics_fault_does_not_alter_verdicts(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    class RaisingSink:
+        def record_decision(self, *, verdict: str, status: str, latency_s: float) -> None:
+            raise RuntimeError("sink bug")
+
+        def record_cache(self, *, hit: bool) -> None:
+            raise RuntimeError("sink bug")
+
+    respx_mock.post(_BATCH_URL).respond(
+        json={"evaluations": [{"decision": True}, {"decision": False}]}
+    )
+    engine = _engine(make_config(), noop_sleep, metrics=RaisingSink())
+    results = await engine.evaluate_each(_normalized("read", "rm"))
+    assert [r.verdict for r in results] == [Verdict.ALLOW, Verdict.BLOCK]
