@@ -63,6 +63,17 @@ cedar = ["cedarpy>=4.8,<4.9"]
 # floor guarantees the register_action / output_mapping / ActionResult APIs the adapter uses,
 # and the ceiling guards against a breaking minor (bump deliberately).
 nemo = ["nemoguardrails>=0.21,<0.23"]
+# FastMCP server-middleware adapter (apparitor.fastmcp) — the MCP-boundary PEP. Optional so
+# the core stays standalone — importing `apparitor.fastmcp` without it raises
+# MissingDependencyError. Wider than the other extras' pins, deliberately: the middleware API
+# used (Middleware.on_call_tool, get_access_token, ToolError) is stable across 2.14 (the last
+# maintained 2.x line) and 3.x, and the `fastmcp` CI job matrix exercises both. 3.0.x is
+# excluded — it shipped middleware-dispatch bugs fixed in 3.0.1 and the matrix tests >=3.1.
+# NOTE: server composition (mount) names differ across the range — a child-mounted server is
+# seen as the parent's name on 2.14 but the child's on 3.x — so deployments under mounting
+# must pin `server_label` for stable policy keys (see apparitor.fastmcp). Drop the 2.x leg and
+# raise the floor when that line stops receiving maintenance.
+fastmcp = ["fastmcp>=2.14,!=3.0.*,<4"]
 dev = [
   "pytest>=8",
   "pytest-asyncio>=0.23",
@@ -108,11 +119,18 @@ strict = true
 files = ["src"]
 plugins = ["pydantic.mypy"]
 
-# LlamaFirewall, cedarpy and nemoguardrails ship no type stubs and may be absent in the lint
-# environment.
+# LlamaFirewall, cedarpy and nemoguardrails ship no type stubs; fastmcp/mcp ship types but
+# may be absent in the lint environment.
 [[tool.mypy.overrides]]
-module = ["llamafirewall.*", "cedarpy.*", "nemoguardrails.*"]
+module = ["llamafirewall.*", "cedarpy.*", "nemoguardrails.*", "fastmcp.*", "mcp.*"]
 ignore_missing_imports = true
+
+# apparitor.fastmcp subclasses fastmcp's Middleware, which is `Any` when fastmcp is absent
+# (lint env) but fully typed when present (the `fastmcp` CI job, local dev) — the
+# `type: ignore[misc]` on the class is required in the first case and unused in the second.
+[[tool.mypy.overrides]]
+module = ["apparitor.fastmcp"]
+warn_unused_ignores = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
@@ -129,10 +147,11 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["apparitor"]
-# scanner.py (LlamaFirewall), cedar.py (cedarpy) and nemo.py (nemoguardrails) each depend on an
-# optional extra and are covered by their own CI jobs (`scanner`, `cedar`, `nemo`) that install
-# the extra — not the default unit run, which must import the package without those deps.
-omit = ["*/scanner.py", "*/cedar.py", "*/nemo.py"]
+# scanner.py (LlamaFirewall), cedar.py (cedarpy), nemo.py (nemoguardrails) and fastmcp.py
+# (fastmcp) each depend on an optional extra and are covered by their own CI jobs (`scanner`,
+# `cedar`, `nemo`, `fastmcp`) that install the extra — not the default unit run, which must
+# import the package without those deps.
+omit = ["*/scanner.py", "*/cedar.py", "*/nemo.py", "*/fastmcp.py"]
 
 [tool.coverage.report]
 exclude_lines = [

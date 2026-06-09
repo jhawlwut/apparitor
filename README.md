@@ -25,12 +25,12 @@ standard, so the same wiring reaches the engines you already author policy in �
 **OpenFGA** (Zanzibar / ReBAC), **Cedar** (policy-as-code), and **OPA / Rego** — with no
 policy rewrite. Apache-2.0, built entirely on public standards.
 
-> **Status: `0.0.1a0` — pre-alpha.** **Shipping today:** the LlamaFirewall and NeMo
-> Guardrails integrations and the AuthZEN evaluation pipeline, working end-to-end against
-> any AuthZEN 1.0 PDP (OpenFGA, Cedar, OPA, Cerbos, Topaz) — plus native (non-AuthZEN)
-> backends for OPA and Cedar — with 98% test coverage on the firewall-free core (see
-> [`CHANGELOG`](CHANGELOG.md)). **On the roadmap:** a direct OpenFGA backend and an Amazon
-> Verified Permissions cloud variant. APIs may change — see
+> **Status: `0.0.1a0` — pre-alpha.** **Shipping today:** three enforcement points — the
+> LlamaFirewall scanner, the NeMo Guardrails rail, and the FastMCP server middleware — and
+> the AuthZEN evaluation pipeline, working end-to-end against any AuthZEN 1.0 PDP
+> (OpenFGA, Cedar, OPA, Cerbos, Topaz) plus native OPA and in-process Cedar backends, with
+> 98% test coverage on the adapter-free core (see [`CHANGELOG`](CHANGELOG.md)). **On the
+> roadmap:** an A2A adapter and a native OpenFGA backend. APIs may change — see
 > [`docs/requirements.md`](docs/requirements.md) for the design and [`ROADMAP`](ROADMAP.md).
 
 ## The gap
@@ -85,7 +85,24 @@ result = await firewall.scan_async(assistant_message)   # ALLOW / BLOCK / HUMAN_
 Per request, supply the real end user the agent acts for (recommended over a static
 `agent_id`) — see [Identity: who the agent acts for](#identity-who-the-agent-acts-for).
 
-The AuthZEN client and models are **firewall-free** and usable on their own:
+At the **MCP boundary** the same engine runs server-side, before any tool executes —
+and the subject is the *validated* OAuth identity of the caller (the token's `sub`),
+not a host-asserted value (`pip install "apparitor[fastmcp]"`):
+
+```python
+from fastmcp import FastMCP
+from apparitor.fastmcp import FastMCPAuthorizationMiddleware
+
+server = FastMCP("files", auth=my_token_verifier)   # auth supplies the validated identity
+server.add_middleware(FastMCPAuthorizationMiddleware(pdp_url="https://pdp.internal"))
+```
+
+Register the middleware **after** any custom auth middleware (so the token is populated);
+it gates `tools/call` only (resource reads and prompts are not yet authorized), and under
+server composition pin `server_label` for stable policy keys. FastMCP never tears middleware
+down, so call `await middleware.aclose()` on shutdown to release the PDP client.
+
+The AuthZEN client and models are **adapter-free** and usable on their own:
 
 ```python
 from apparitor.models import EvaluationRequest   # no firewall dependency needed
@@ -97,8 +114,9 @@ Every decision needs a **subject** — the principal your policy is written agai
 never infers it from model or tool output (that would be a [confused
 deputy](https://en.wikipedia.org/wiki/Confused_deputy_problem)); the **host** supplies it,
 request-scoped, because the firewall layer sees messages, not an authenticated principal.
-There are two levels, and the same seam feeds either adapter (the LlamaFirewall scanner or
-the NeMo rail).
+There are two levels, and the same seam feeds every adapter (the LlamaFirewall scanner, the
+NeMo rail, the FastMCP middleware). At the MCP boundary the middleware fills this seam
+itself from the validated OAuth token — see the note below.
 
 **Level 0 — a static agent identity.** Set `agent_id`; every call is authorized as that
 agent. Enough for policies that don't depend on the end user — *"no agent may call a
@@ -125,9 +143,11 @@ along as AuthZEN `context` for policy conditions — see
 [docs/setup.md](docs/setup.md#identity-resolving-the-subject) for the full resolution order
 and a request-context example.
 
-> Enforcement points that carry a *validated* identity of their own — e.g. an MCP server
-> holding the caller's OAuth token — populate this same subject seam; see the
-> [roadmap](ROADMAP.md).
+> Enforcement points that carry a *validated* identity of their own populate this same
+> subject seam: the FastMCP middleware reads the verified OAuth token's `sub` claim and
+> it outranks any host-asserted subject. A token is never silently downgraded — a token
+> without a usable claim refuses the call, and the static `agent_id` fallback requires an
+> explicit `allow_static_subject=True` opt-in (local/stdio only).
 
 ## Observability
 
@@ -143,20 +163,24 @@ m.cache_hits, m.cache_misses                # cache effectiveness (single-call d
 ```
 
 To export, pass your own `MetricsSink` (forward to Prometheus/OpenTelemetry) or
-`NoopMetrics()` to disable. Each decision also emits one structured audit log line (verdict,
+`NoopMetrics()` to disable. The default `InMemoryMetrics` is lock-free and meant for
+single-event-loop use; a long-lived server scraping it from another thread (or a sink shared
+across threads) must provide its own synchronisation — pass a thread-safe `MetricsSink`.
+Each decision also emits one structured audit log line (verdict,
 status, subject id, correlation id, tool names, and an argument *fingerprint*). Raw tool
 arguments and tokens are never logged — arguments are fingerprinted. The subject id is the
-decision principal (it may itself be an identifier such as an email), so treat the
-`apparitor` logger as sensitive and route it accordingly.
+decision principal (with the FastMCP middleware that is the OAuth `sub`, which may be an
+email), so treat the `apparitor` logger as sensitive and route it accordingly.
 
 ## What apparitor connects
 
-**Agentic firewalls** (the agent-side hook apparitor plugs into):
+**Enforcement points** (the agent-side hooks apparitor plugs into):
 
-| Firewall | Vendor | Status |
+| Enforcement point | Vendor | Status |
 | --- | --- | --- |
 | [**LlamaFirewall**](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall) | Meta | shipping (`AuthZENScanner`) |
 | [**NeMo Guardrails**](https://github.com/NVIDIA/NeMo-Guardrails) | NVIDIA | shipping (`NeMoAuthorizationRails`) |
+| [**FastMCP**](https://github.com/PrefectHQ/fastmcp) server middleware | Prefect | shipping (`FastMCPAuthorizationMiddleware`) |
 
 **Policy engines** (where the authorization decision is made). apparitor reaches these over
 AuthZEN; OPA and Cedar also have native backends that skip the AuthZEN hop, selected by

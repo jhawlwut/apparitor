@@ -291,3 +291,73 @@ async def test_predicate_that_raises_fails_closed(
     result = await engine.evaluate_tool_calls([make_openai_call("read")])
     assert result.verdict is Verdict.BLOCK
     assert result.status is VerdictStatus.ERROR
+
+
+# --- evaluate_normalized (the structured-call seam for MCP-boundary PEPs) -----------
+
+
+@pytest.mark.asyncio
+async def test_evaluate_normalized_allows(make_config, noop_sleep, respx_mock) -> None:
+    from apparitor.adapters import NormalizedToolCall
+
+    respx_mock.post(_EVAL_URL).respond(json={"decision": True})
+    engine = _engine(make_config(), noop_sleep)
+    result = await engine.evaluate_normalized([NormalizedToolCall("read_file", {"path": "/t"})])
+    assert result.verdict is Verdict.ALLOW
+    assert result.status is VerdictStatus.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_evaluate_normalized_blocks(make_config, noop_sleep, respx_mock) -> None:
+    from apparitor.adapters import NormalizedToolCall
+
+    respx_mock.post(_EVAL_URL).respond(json={"decision": False})
+    engine = _engine(make_config(), noop_sleep)
+    result = await engine.evaluate_normalized([NormalizedToolCall("delete_table")])
+    assert result.verdict is Verdict.BLOCK
+    assert result.status is VerdictStatus.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_evaluate_normalized_empty_skips(make_config, noop_sleep, respx_mock) -> None:
+    route = respx_mock.post(_EVAL_URL)
+    engine = _engine(make_config(), noop_sleep)
+    for calls in (None, []):
+        result = await engine.evaluate_normalized(calls)
+        assert result.verdict is Verdict.SKIP
+        assert result.status is VerdictStatus.SKIPPED
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_evaluate_normalized_mapper_abstention_skips(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    # Engine semantics: every mapper abstaining is SKIP. A PEP where a present call must
+    # never silently pass (e.g. the FastMCP middleware) refuses SKIP at its own boundary.
+    from apparitor.adapters import NormalizedToolCall
+
+    class AbstainingMapper:
+        def map(self, tool_call, request_context):
+            return None
+
+    route = respx_mock.post(_EVAL_URL)
+    engine = _engine(make_config(), noop_sleep, mapper=AbstainingMapper())
+    result = await engine.evaluate_normalized([NormalizedToolCall("read")])
+    assert result.verdict is Verdict.SKIP
+    assert result.status is VerdictStatus.SKIPPED
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_evaluate_normalized_missing_subject_fails_closed(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    from apparitor.adapters import NormalizedToolCall
+
+    route = respx_mock.post(_EVAL_URL)
+    engine = _engine(make_config(agent_id=None), noop_sleep)
+    result = await engine.evaluate_normalized([NormalizedToolCall("read")])
+    assert result.verdict is Verdict.BLOCK
+    assert result.status is VerdictStatus.ERROR
+    assert route.call_count == 0
