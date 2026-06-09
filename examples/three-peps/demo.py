@@ -52,13 +52,27 @@ def _openai_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
     return {"type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
 
 
+def _missing_optional(exc: ImportError, root: str) -> bool:
+    """True only when the missing module IS the lane's optional dependency (or a child).
+
+    Any other import-time fault (a broken transitive dependency, a typo) must crash the
+    demo rather than masquerade as "not installed".
+    """
+    name = getattr(exc, "name", None)
+    return isinstance(name, str) and (name == root or name.startswith(root + "."))
+
+
 async def lane_llamafirewall() -> dict[str, str] | Exception:
     try:
         from llamafirewall import AssistantMessage, ScanDecision, ScanStatus
 
         from apparitor import AuthZENScanner
-    except (ImportError, MissingDependencyError) as exc:
+    except MissingDependencyError as exc:
         return exc
+    except ImportError as exc:
+        if _missing_optional(exc, "llamafirewall"):
+            return exc
+        raise
 
     results: dict[str, str] = {}
     async with AuthZENScanner(config=_config()) as scanner:
@@ -108,8 +122,12 @@ async def lane_fastmcp() -> dict[str, str] | Exception:
         from fastmcp.exceptions import ToolError
 
         from apparitor.fastmcp import FastMCPAuthorizationMiddleware
-    except (ImportError, MissingDependencyError) as exc:
+    except MissingDependencyError as exc:
         return exc
+    except ImportError as exc:
+        if _missing_optional(exc, "fastmcp"):
+            return exc
+        raise
     from apparitor.mapping import DefaultToolCallMapper
 
     cfg = _config()
@@ -170,7 +188,8 @@ async def main() -> int:
     for label, extra, lane in _LANES:
         results = await lane()
         if isinstance(results, Exception):
-            reason = str(results).splitlines()[0]
+            lines = str(results).splitlines()
+            reason = lines[0] if lines else results.__class__.__name__
             print(f"{label:24} skipped — install '{extra}' to run this lane ({reason})")
             continue
         ran += 1
