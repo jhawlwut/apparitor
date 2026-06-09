@@ -1,8 +1,10 @@
-"""AuthZEN PDP client (LlamaFirewall-free, async-first).
+"""HTTP transport + AuthZEN PDP client (LlamaFirewall-free, async-first).
 
-Owns transport and the AuthZEN wire shape only — decision-to-verdict mapping lives in the
-engine. The scanner holds one long-lived, pooled ``httpx.AsyncClient`` across calls and
-closes it via :meth:`AuthZENClient.aclose`.
+:class:`HTTPDecisionTransport` owns the hardened transport shared by every HTTP decision
+backend: a pooled ``httpx.AsyncClient``, the SSRF guard, bounded retries within the request
+budget, and httpx-exception mapping. :class:`AuthZENClient` builds the AuthZEN wire shape on
+top of it; the native :class:`~apparitor.backends.OPABackend` reuses the same transport so
+the security controls are defined once, never duplicated.
 
 * **Async only.** No ``asyncio.run`` — it would crash inside a running event loop.
 * **Bring-your-own client.** Pass a pre-configured ``httpx.AsyncClient`` to own
@@ -48,6 +50,7 @@ if TYPE_CHECKING:
 _RETRY_STATUS = frozenset({429, 502, 503, 504})
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
+_TransportT = TypeVar("_TransportT", bound="HTTPDecisionTransport")
 
 
 def validate_pdp_url(url: str, *, allow_insecure: bool) -> None:
@@ -85,8 +88,9 @@ def validate_pdp_url(url: str, *, allow_insecure: bool) -> None:
         raise AuthZENConfigError(f"pdp_url host {host} is private/link-local; refusing (SSRF)")
 
 
-class AuthZENClient:
-    """Async client for the AuthZEN Access Evaluation API."""
+class HTTPDecisionTransport:
+    """Pooled, SSRF-guarded HTTP transport with bounded retries — the base for every
+    HTTP decision backend. Subclasses add the engine-specific request/response shaping."""
 
     def __init__(
         self,
@@ -98,6 +102,10 @@ class AuthZENClient:
     ) -> None:
         self._config = config
         validate_pdp_url(str(config.pdp_url), allow_insecure=config.allow_insecure_pdp)
+        # Compose request URLs from the *validated* pdp_url, not from an injected client's
+        # base_url, so the SSRF-checked origin (and the path prefix) always governs the
+        # destination — even with a bring-your-own http_client.
+        self._base_url = str(config.pdp_url).rstrip("/")
         self._owns_http = http_client is None
         self._http = http_client or self._build_client()
         self._sleep = sleep or asyncio.sleep
@@ -121,18 +129,6 @@ class AuthZENClient:
             follow_redirects=False,
         )
 
-    async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
-        """``POST /access/v1/evaluation`` — evaluate a single tuple."""
-        payload = request.model_dump(mode="json", exclude_none=True)
-        data = await self._post(self._config.evaluation_path, payload)
-        return _parse(data, EvaluationResponse)
-
-    async def evaluate_batch(self, request: BatchEvaluationRequest) -> BatchEvaluationResponse:
-        """``POST /access/v1/evaluations`` — evaluate a batch (multi-step plan)."""
-        payload = request.model_dump(mode="json", exclude_none=True)
-        data = await self._post(self._config.batch_path, payload)
-        return _parse(data, BatchEvaluationResponse)
-
     async def _post(self, path: str, payload: dict[str, Any]) -> object:
         cfg = self._config
         deadline = self._clock() + cfg.request_budget_s
@@ -142,16 +138,21 @@ class AuthZENClient:
             remaining = deadline - self._clock()
             if remaining <= 0:
                 raise PDPTimeoutError("PDP request budget exhausted") from last_exc
-            # Cap the per-attempt timeout to the remaining budget so a single slow call
-            # can never run past it (the budget bounds total wall-clock, not just retries).
+            # Cap every per-attempt timeout — including the pool-acquire wait — to the
+            # remaining budget so a single slow call (or a saturated pool) can never run past
+            # it (the budget bounds total wall-clock, not just retries).
             timeout = httpx.Timeout(
                 connect=min(cfg.connect_timeout_s, remaining),
                 read=min(cfg.read_timeout_s, remaining),
                 write=min(cfg.read_timeout_s, remaining),
-                pool=cfg.connect_timeout_s,
+                pool=min(cfg.connect_timeout_s, remaining),
             )
             try:
-                response = await self._http.post(path, json=payload, timeout=timeout)
+                # Absolute URL from the validated pdp_url + per-request no-redirect: a bring-
+                # your-own client cannot redirect the request off the SSRF-checked origin.
+                response = await self._http.post(
+                    self._base_url + path, json=payload, timeout=timeout, follow_redirects=False
+                )
             except httpx.TimeoutException as exc:
                 last_exc = exc
                 if not self._should_retry(attempt, deadline):
@@ -164,31 +165,53 @@ class AuthZENClient:
                     raise PDPUnavailableError(f"PDP unreachable: {exc}") from exc
             else:
                 if response.status_code in _RETRY_STATUS and self._should_retry(attempt, deadline):
-                    await self._backoff(attempt)
+                    await self._backoff(attempt, deadline)
                     attempt += 1
                     continue
                 return _handle_status(response)
-            await self._backoff(attempt)
+            await self._backoff(attempt, deadline)
             attempt += 1
 
     def _should_retry(self, attempt: int, deadline: float) -> bool:
         return attempt < self._config.max_retries and self._clock() < deadline
 
-    async def _backoff(self, attempt: int) -> None:
+    async def _backoff(self, attempt: int, deadline: float) -> None:
         cfg = self._config
         delay = min(cfg.backoff_base_s * (2**attempt), cfg.backoff_max_s)
-        await self._sleep(delay + random.uniform(0, cfg.backoff_base_s))
+        delay += random.uniform(0, cfg.backoff_base_s)
+        # Never sleep past the budget — the loop checks remaining only after the sleep, so an
+        # unclamped backoff would let total wall-clock exceed request_budget_s.
+        remaining = deadline - self._clock()
+        if remaining <= 0:
+            return
+        await self._sleep(min(delay, remaining))
 
     async def aclose(self) -> None:
         """Close the underlying client if this instance created it."""
         if self._owns_http:
             await self._http.aclose()
 
-    async def __aenter__(self) -> AuthZENClient:
+    async def __aenter__(self: _TransportT) -> _TransportT:
         return self
 
     async def __aexit__(self, *exc: object) -> None:
         await self.aclose()
+
+
+class AuthZENClient(HTTPDecisionTransport):
+    """Async client for the AuthZEN Access Evaluation API."""
+
+    async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
+        """``POST /access/v1/evaluation`` — evaluate a single tuple."""
+        payload = request.model_dump(mode="json", exclude_none=True)
+        data = await self._post(self._config.evaluation_path, payload)
+        return _parse(data, EvaluationResponse)
+
+    async def evaluate_batch(self, request: BatchEvaluationRequest) -> BatchEvaluationResponse:
+        """``POST /access/v1/evaluations`` — evaluate a batch (multi-step plan)."""
+        payload = request.model_dump(mode="json", exclude_none=True)
+        data = await self._post(self._config.batch_path, payload)
+        return _parse(data, BatchEvaluationResponse)
 
 
 def _handle_status(response: httpx.Response) -> object:
