@@ -29,7 +29,8 @@ from .adapters import (
     ToolCallAdapter,
     detect_adapter,
 )
-from .config import OnError, ScannerConfig
+from .backends import DecisionBackend, OPABackend, build_backend
+from .config import Backend, OnError, ScannerConfig
 from .decision import Verdict, VerdictResult, VerdictStatus
 from .engine import AuthorizationEngine, ReviewPredicate
 from .errors import (
@@ -78,6 +79,11 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
     # config
     "ScannerConfig",
     "OnError",
+    "Backend",
+    # decision backends (AuthZEN client by default; native OPA optional)
+    "DecisionBackend",
+    "OPABackend",
+    "build_backend",
     # engine / decision (LlamaFirewall-free orchestration)
     "AuthorizationEngine",
     "ReviewPredicate",

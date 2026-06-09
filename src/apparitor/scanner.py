@@ -87,12 +87,12 @@ class AuthZENScanner(Scanner):  # type: ignore[misc]  # LlamaFirewall ships no t
                 raise ValueError("provide either pdp_url or config")
             config = ScannerConfig(pdp_url=pdp_url)
         self._config = config
-        from .client import AuthZENClient
+        from .backends import build_backend
 
-        client = AuthZENClient(config, http_client=http_client)
+        backend = build_backend(config, http_client=http_client)
         self._engine = AuthorizationEngine(
             config,
-            client=client,
+            client=backend,
             mapper=mapper,
             review_predicate=review_predicate,
             metrics=metrics,

@@ -71,12 +71,15 @@ aggregator across the popular agentic firewalls and policy engines.
 - Keep the firewall-specific surface thin: only the firewall adapter module may import a
   firewall SDK; the core stays standalone.
 
-### 📋 Native policy-engine adapters (skip the AuthZEN hop)
+### 🔜 Native policy-engine adapters (skip the AuthZEN hop)
 
-- Direct **Cedar**, **OpenFGA**, and **OPA / Rego** adapters for deployments that don't
-  front their engine with an AuthZEN endpoint — talk each engine's own API while keeping the
-  same mapping seam and fail-closed semantics.
-- A pluggable decision-backend interface so a deployment selects its engine by config.
+- A pluggable **decision-backend** interface so a deployment selects its engine by config
+  (`ScannerConfig(backend=...)`), reusing one hardened transport (SSRF guard, TLS, bounded
+  retries) and the same mapping + fail-closed semantics. ✅ done.
+- **OPA / Rego** native backend — talks OPA's Data API (`/v1/data/<rule>`) directly, no
+  AuthZEN gateway. ✅ done (`backend="opa"`).
+- Direct **Cedar** and **OpenFGA** backends for deployments that don't front their engine
+  with an AuthZEN endpoint — next, plugging into the same seam.
 
 ## Out of scope (tracked, deferred)
 
