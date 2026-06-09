@@ -52,45 +52,64 @@ def _openai_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
     return {"type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
 
 
-async def lane_llamafirewall() -> dict[str, str] | None:
+async def lane_llamafirewall() -> dict[str, str] | Exception:
     try:
-        from llamafirewall import AssistantMessage, ScanDecision
+        from llamafirewall import AssistantMessage, ScanDecision, ScanStatus
 
         from apparitor import AuthZENScanner
-    except (ImportError, MissingDependencyError):
-        return None
+    except (ImportError, MissingDependencyError) as exc:
+        return exc
 
     results: dict[str, str] = {}
     async with AuthZENScanner(config=_config()) as scanner:
         for name, args, _ in _CASES:
             message = AssistantMessage(content="", tool_calls=[_openai_call(name, args)])
             scan = await scanner.scan(message)
-            results[name] = "ALLOW" if scan.decision == ScanDecision.ALLOW else "BLOCK"
+            # Bucket the full verdict, not just allow/deny, so a fail-closed *error* block
+            # can never impersonate the policy `forbid` the demo claims to demonstrate.
+            if scan.status is not ScanStatus.SUCCESS:
+                results[name] = "ERROR"
+            elif scan.decision == ScanDecision.ALLOW:
+                results[name] = "ALLOW"
+            elif scan.decision == ScanDecision.HUMAN_IN_THE_LOOP_REQUIRED:
+                results[name] = "REVIEW"
+            else:
+                results[name] = "BLOCK"
     return results
 
 
-async def lane_nemo() -> dict[str, str] | None:
+async def lane_nemo() -> dict[str, str] | Exception:
+    # Only the adapter's missing-dependency signal counts as "not installed"; any other
+    # fault inside the adapter must surface as a crash, not masquerade as a skip.
     try:
         from apparitor.nemo import NeMoAuthorizationRails
-    except (ImportError, MissingDependencyError):
-        return None
+    except MissingDependencyError as exc:
+        return exc
 
     results: dict[str, str] = {}
     async with NeMoAuthorizationRails(config=_config()) as rails:
         for name, args, _ in _CASES:
             action_result = await rails.action(tool_calls=[_openai_call(name, args)])
-            results[name] = "ALLOW" if action_result.return_value is True else "BLOCK"
+            ctx = action_result.context_updates
+            if action_result.return_value is True:
+                results[name] = "ALLOW"
+            elif ctx["tool_authorization_status"] == "error":
+                results[name] = "ERROR"
+            elif ctx["tool_authorization_verdict"] == "human_review":
+                results[name] = "REVIEW"
+            else:
+                results[name] = "BLOCK"
     return results
 
 
-async def lane_fastmcp() -> dict[str, str] | None:
+async def lane_fastmcp() -> dict[str, str] | Exception:
     try:
         from fastmcp import Client, FastMCP
         from fastmcp.exceptions import ToolError
 
         from apparitor.fastmcp import FastMCPAuthorizationMiddleware
-    except (ImportError, MissingDependencyError):
-        return None
+    except (ImportError, MissingDependencyError) as exc:
+        return exc
     from apparitor.mapping import DefaultToolCallMapper
 
     cfg = _config()
@@ -122,11 +141,13 @@ async def lane_fastmcp() -> dict[str, str] | None:
                 await client.call_tool(name, args)
                 results[name] = "ALLOW"
             except ToolError:
+                # The client sees only the deliberately generic refusal — verdict detail
+                # (deny vs review vs error) stays server-side by design at this boundary.
                 results[name] = "BLOCK"
     return results
 
 
-_LANES: list[tuple[str, str, Callable[[], Awaitable[dict[str, str] | None]]]] = [
+_LANES: list[tuple[str, str, Callable[[], Awaitable[dict[str, str] | Exception]]]] = [
     ("LlamaFirewall scanner", "apparitor[llamafirewall]", lane_llamafirewall),
     ("NeMo Guardrails rail", "apparitor[nemo]", lane_nemo),
     ("FastMCP middleware", "apparitor[fastmcp]", lane_fastmcp),
@@ -148,8 +169,9 @@ async def main() -> int:
     mismatches = 0
     for label, extra, lane in _LANES:
         results = await lane()
-        if results is None:
-            print(f"{label:24} skipped — install '{extra}' to run this lane")
+        if isinstance(results, Exception):
+            reason = str(results).splitlines()[0]
+            print(f"{label:24} skipped — install '{extra}' to run this lane ({reason})")
             continue
         ran += 1
         for name, _, want in _CASES:
@@ -165,7 +187,7 @@ async def main() -> int:
     )
     if mismatches or ran == 0:
         return 1
-    if os.environ.get("APPARITOR_DEMO_REQUIRE_ALL") and ran < len(_LANES):
+    if os.environ.get("APPARITOR_DEMO_REQUIRE_ALL") == "1" and ran < len(_LANES):
         print("APPARITOR_DEMO_REQUIRE_ALL is set and a lane was skipped — failing")
         return 1
     return 0
