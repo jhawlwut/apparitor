@@ -7,6 +7,10 @@ official `opa` binary behind a small **AuthZEN gateway** we own
 ([`gateway/gateway.py`](gateway/gateway.py)). The scanner speaks plain AuthZEN; the gateway
 feeds each request to OPA as the policy `input` and evaluates the vendored Rego policy.
 
+If you'd rather skip the gateway, the scanner also has a **native OPA backend** that talks
+OPA's Data API directly (`ScannerConfig(backend="opa")`) — see
+[Native backend (no gateway)](#native-backend-no-gateway) below.
+
 Together with the [OpenFGA example](../openfga/) (relationship-based) and the
 [Cedar example](../cedar/) (policy-as-code via a gateway), this shows the scanner works
 unchanged across the popular authorization engines over the same AuthZEN API. OPA and Cedar
@@ -87,3 +91,50 @@ scanner = AuthZENScanner(config=ScannerConfig(
 The Docker-gated integration test in
 [`tests/integration/test_opa.py`](../../tests/integration/test_opa.py) builds the gateway
 image and drives the real engine against it. See [../README.md](../README.md).
+
+## Native backend (no gateway)
+
+The gateway above lets the scanner speak plain AuthZEN to OPA. If you'd rather skip the
+AuthZEN hop, the scanner has a **native OPA backend** that talks OPA's Data API directly —
+no gateway process. Run OPA in server mode over the same vendored policy + data:
+
+```bash
+opa run --server --addr localhost:8181 policy.rego data.json
+```
+
+then select the backend by config:
+
+```python
+from apparitor import AuthZENScanner, ScannerConfig
+
+scanner = AuthZENScanner(config=ScannerConfig(
+    backend="opa",                              # talk OPA's /v1/data API directly
+    pdp_url="http://127.0.0.1:8181",
+    allow_insecure_pdp=True,                    # local dev, plain HTTP
+    agent_id="demo-agent",
+    opa_decision_path="apparitor/authz/allow",  # the boolean Rego rule to query — set this
+                                                # to match your own policy's package + rule
+
+))
+```
+
+The backend sends the AuthZEN tuple as OPA's policy `input` and reads the boolean
+`opa_decision_path` rule. `default allow := false` keeps it fail-closed: a missing or
+non-boolean result is an error the engine resolves fail-closed (deny by default), never a
+coerced allow. A multi-tool-call message
+fans out to one Data API call per tool (OPA has no batch endpoint) and is allowed only if
+every call is permitted. The same fail-closed / TLS / SSRF transport guards apply as for
+the AuthZEN client.
+
+When to use which:
+
+| | Gateway (AuthZEN) | Native backend (`backend="opa"`) |
+| --- | --- | --- |
+| Extra process | the gateway shim | none — talks to OPA directly |
+| Wire protocol | AuthZEN | OPA Data API |
+| Advisory `context` / HITL `review_predicate` | available | not applicable (boolean rule only) |
+| Best for | standardising on AuthZEN across engines | deployments already running OPA |
+
+The Docker-free native integration test in
+[`tests/integration/test_opa_native.py`](../../tests/integration/test_opa_native.py) runs
+the pinned `opa` binary in server mode and drives the engine with `backend="opa"`.

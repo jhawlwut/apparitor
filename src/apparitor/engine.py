@@ -15,8 +15,8 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from .adapters import NormalizedToolCall, detect_adapter
+from .backends import build_backend
 from .cache import DecisionCache, decision_cache_key
-from .client import AuthZENClient
 from .decision import (
     Verdict,
     VerdictResult,
@@ -34,6 +34,7 @@ from .models import BatchEvaluationRequest, EvaluationItem, EvaluationsOptions
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from .backends import DecisionBackend
     from .config import ScannerConfig
     from .mapping import ToolCallMapper
     from .models import EvaluationRequest
@@ -55,13 +56,13 @@ class AuthorizationEngine:
         self,
         config: ScannerConfig,
         *,
-        client: AuthZENClient | None = None,
+        client: DecisionBackend | None = None,
         mapper: ToolCallMapper | None = None,
         review_predicate: ReviewPredicate | None = None,
         metrics: MetricsSink | None = None,
     ) -> None:
         self._config = config
-        self._client = client or AuthZENClient(config)
+        self._client = client or build_backend(config)
         self._mapper = mapper or DefaultToolCallMapper(config)
         self._review = review_predicate
         #: Decision-latency histogram + cache-hit counter. Defaults to an in-memory sink;
