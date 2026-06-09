@@ -21,8 +21,9 @@ pytestmark = pytest.mark.unit
 
 pytest.importorskip("fastmcp")
 
+import httpx  # noqa: E402
 from fastmcp import Client, FastMCP  # noqa: E402
-from fastmcp.exceptions import ToolError  # noqa: E402
+from fastmcp.exceptions import McpError, ToolError  # noqa: E402
 from fastmcp.server.auth.auth import AccessToken  # noqa: E402
 from mcp.server.auth.middleware.auth_context import auth_context_var  # noqa: E402
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser  # noqa: E402
@@ -32,6 +33,7 @@ from apparitor.fastmcp import FastMCPAuthorizationMiddleware  # noqa: E402
 from apparitor.mapping import subject_scope  # noqa: E402
 
 _EVAL_URL = "http://pdp.test/access/v1/evaluation"
+_BATCH_URL = "http://pdp.test/access/v1/evaluations"
 _ALICE = Subject(type="user", id="alice@acme.com")
 
 
@@ -42,6 +44,14 @@ def _server(guard: FastMCPAuthorizationMiddleware) -> FastMCP:
     @server.tool
     def read_file(path: str) -> str:
         return f"contents of {path}"
+
+    @server.resource("resource://config")
+    def config_resource() -> str:
+        return "secret-config"
+
+    @server.prompt
+    def greet(name: str) -> str:
+        return f"Hello {name}"
 
     return server
 
@@ -326,3 +336,177 @@ async def test_mounted_server_uses_pinned_label_for_stable_key(make_config, resp
                 await client.call_tool("files_read_file", {"path": "/tmp/a"})
     sent = json.loads(route.calls.last.request.content)
     assert sent["resource"]["id"] == "gateway/files_read_file"
+
+
+# --- workload (client-credentials) identities ----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_workload_token_authorized_with_opt_in(make_config, respx_mock) -> None:
+    # A verified token without a sub claim maps to a DISTINCT subject type, so policies
+    # written for users can never match a machine principal.
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": True})
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), allow_workload_subject=True)
+    async with guard:
+        with _token({"azp": "machine"}, client_id="svc-42"):
+            async with Client(_server(guard)) as client:
+                await client.call_tool("read_file", {"path": "/tmp/a"})
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["subject"]["type"] == "workload"
+    assert sent["subject"]["id"] == "svc-42"
+
+
+@pytest.mark.asyncio
+async def test_sub_claim_wins_over_workload_opt_in(make_config, respx_mock) -> None:
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": True})
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), allow_workload_subject=True)
+    async with guard:
+        with _token({"sub": "alice@acme.com"}, client_id="svc-42"):
+            async with Client(_server(guard)) as client:
+                await client.call_tool("read_file", {"path": "/tmp/a"})
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["subject"]["type"] == "user"
+    assert sent["subject"]["id"] == "alice@acme.com"
+
+
+# --- listing filter (opt-in, advisory) ------------------------------------------------
+
+
+def _decide_by_resource_id(request: httpx.Request) -> httpx.Response:
+    body = json.loads(request.content)
+    evaluations = [
+        {"decision": "delete" not in item["resource"]["id"]} for item in body["evaluations"]
+    ]
+    return httpx.Response(200, json={"evaluations": evaluations})
+
+
+@pytest.mark.asyncio
+async def test_filter_listings_hides_denied_tools(make_config, respx_mock) -> None:
+    route = respx_mock.post(_BATCH_URL).mock(side_effect=_decide_by_resource_id)
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), filter_listings=True)
+    server = _server(guard)
+
+    @server.tool
+    def delete_database(name: str) -> str:
+        return name
+
+    async with guard:
+        with subject_scope(_ALICE):
+            async with Client(server) as client:
+                tools = await client.list_tools()
+    assert [tool.name for tool in tools] == ["read_file"]
+    assert route.call_count == 1  # one batch round trip, not N singles
+
+
+@pytest.mark.asyncio
+async def test_filter_listings_hides_all_without_subject(make_config, respx_mock) -> None:
+    route = respx_mock.post(_BATCH_URL)
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), filter_listings=True)
+    async with guard, Client(_server(guard)) as client:
+        tools = await client.list_tools()
+    assert tools == []
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_filter_listings_hides_all_on_pdp_error(make_config, respx_mock) -> None:
+    respx_mock.post(_BATCH_URL).respond(status_code=503)
+    guard = FastMCPAuthorizationMiddleware(config=make_config(max_retries=0), filter_listings=True)
+    async with guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                tools = await client.list_tools()
+    assert tools == []
+
+
+# --- resource gating (on by default) --------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resource_read_gated_and_allowed(make_config, respx_mock) -> None:
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": True})
+    async with FastMCPAuthorizationMiddleware(config=make_config()) as guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                contents = await client.read_resource("resource://config")
+    assert "secret-config" in str(contents)
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["action"]["name"] == "resource.read"
+    assert sent["resource"]["type"] == "mcp_resource"
+    assert sent["resource"]["id"] == "resource://config"
+    assert sent["resource"]["properties"]["server"] == "files"
+
+
+@pytest.mark.asyncio
+async def test_resource_read_denied_with_generic_reason(make_config, respx_mock) -> None:
+    respx_mock.post(_EVAL_URL).respond(json={"decision": False})
+    async with FastMCPAuthorizationMiddleware(config=make_config()) as guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                with pytest.raises(McpError, match="not authorized"):
+                    await client.read_resource("resource://config")
+
+
+@pytest.mark.asyncio
+async def test_resource_pdp_error_fails_closed_without_leaking_detail(
+    make_config, respx_mock
+) -> None:
+    route = respx_mock.post(_EVAL_URL).respond(status_code=503)
+    guard = FastMCPAuthorizationMiddleware(config=make_config(max_retries=0))
+    async with guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                with pytest.raises(McpError) as excinfo:
+                    await client.read_resource("resource://config")
+    assert route.call_count == 1
+    message = str(excinfo.value).lower()
+    assert "not authorized" in message
+    for fragment in ("pdp", "unavailable", "503", "http", "retr", "config "):
+        assert fragment not in message
+
+
+@pytest.mark.asyncio
+async def test_resource_gate_opt_out_passes_ungated(make_config, respx_mock) -> None:
+    route = respx_mock.post(_EVAL_URL)
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), gate_resources=False)
+    async with guard, Client(_server(guard)) as client:
+        contents = await client.read_resource("resource://config")
+    assert "secret-config" in str(contents)
+    assert route.call_count == 0
+
+
+# --- prompt gating (on by default) ----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_prompt_gated_and_allowed_with_server_scoped_key(make_config, respx_mock) -> None:
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": True})
+    async with FastMCPAuthorizationMiddleware(config=make_config()) as guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                result = await client.get_prompt("greet", {"name": "Bo"})
+    assert "Hello Bo" in str(result)
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["action"]["name"] == "prompt.get"
+    assert sent["resource"]["type"] == "mcp_prompt"
+    assert sent["resource"]["id"] == "files/greet"
+
+
+@pytest.mark.asyncio
+async def test_prompt_denied_with_generic_reason(make_config, respx_mock) -> None:
+    respx_mock.post(_EVAL_URL).respond(json={"decision": False})
+    async with FastMCPAuthorizationMiddleware(config=make_config()) as guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                with pytest.raises(McpError, match="not authorized"):
+                    await client.get_prompt("greet", {"name": "Bo"})
+
+
+@pytest.mark.asyncio
+async def test_prompt_gate_opt_out_passes_ungated(make_config, respx_mock) -> None:
+    route = respx_mock.post(_EVAL_URL)
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), gate_prompts=False)
+    async with guard, Client(_server(guard)) as client:
+        result = await client.get_prompt("greet", {"name": "Bo"})
+    assert "Hello Bo" in str(result)
+    assert route.call_count == 0

@@ -7,6 +7,27 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Complete MCP enforcement scope for the FastMCP middleware** (closes
+  [#32](https://github.com/jhawlwut/apparitor/issues/32),
+  [#33](https://github.com/jhawlwut/apparitor/issues/33),
+  [#34](https://github.com/jhawlwut/apparitor/issues/34)):
+  - `resources/read` and `prompts/get` are now **gated by default** (actions
+    `resource.read` / `prompt.get`; resource ids: the URI verbatim for resources with the
+    server label as a property, `"<server>/<prompt>"` for prompts), with the same subject
+    chain, generic refusals (`ResourceError`/`PromptError`) and fail-closed verdict
+    mapping as tool calls; `gate_resources=False` / `gate_prompts=False` opt a hook out.
+    **Breaking (pre-alpha):** deployments without resource/prompt policies will see those
+    requests denied — write policies or opt out.
+  - Opt-in `filter_listings=True` hides tools from `tools/list` whose `tools/call` the
+    subject would be denied — one batch PDP round trip, advisory only (`tools/call`
+    remains the enforcement invariant), and fail-closed (no subject or any fault hides
+    everything).
+  - Opt-in `allow_workload_subject=True` authorizes verified client-credentials tokens
+    (no `sub` claim) as the distinct `Subject(type="workload", id=<client_id>)` — never
+    coerced into a user subject; off by default, such tokens keep refusing.
+- `AuthorizationEngine.evaluate_requests()` (pre-mapped requests, e.g. adapter-shaped
+  resource/prompt tuples) and `AuthorizationEngine.evaluate_each()` (positional per-item
+  verdicts over one batch round trip, for visibility filtering — fail-closed per item).
 - **Three-PEP portability demo (`examples/three-peps/`).** The same vendored Cedar policy
   (`examples/cedar/policies.cedar`, deny-override on `destructive == true`) enforced
   identically at the LlamaFirewall scanner, the NeMo Guardrails rail, and the FastMCP

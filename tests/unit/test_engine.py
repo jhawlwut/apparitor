@@ -361,3 +361,147 @@ async def test_evaluate_normalized_missing_subject_fails_closed(
     assert result.verdict is Verdict.BLOCK
     assert result.status is VerdictStatus.ERROR
     assert route.call_count == 0
+
+
+# --- evaluate_requests (pre-mapped requests, e.g. MCP resource/prompt gating) -------
+
+
+def _shaped_request(resource_id: str = "resource://config"):
+    from apparitor.models import Action, EvaluationRequest, Resource, Subject
+
+    return EvaluationRequest(
+        subject=Subject(type="user", id="alice@acme.com"),
+        action=Action(name="resource.read"),
+        resource=Resource(type="mcp_resource", id=resource_id),
+    )
+
+
+@pytest.mark.asyncio
+async def test_evaluate_requests_allows(make_config, noop_sleep, respx_mock) -> None:
+    respx_mock.post(_EVAL_URL).respond(json={"decision": True})
+    result = await _engine(make_config(), noop_sleep).evaluate_requests([_shaped_request()])
+    assert result.verdict is Verdict.ALLOW
+    assert result.status is VerdictStatus.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_evaluate_requests_blocks(make_config, noop_sleep, respx_mock) -> None:
+    respx_mock.post(_EVAL_URL).respond(json={"decision": False})
+    result = await _engine(make_config(), noop_sleep).evaluate_requests([_shaped_request()])
+    assert result.verdict is Verdict.BLOCK
+
+
+@pytest.mark.asyncio
+async def test_evaluate_requests_empty_skips(make_config, noop_sleep, respx_mock) -> None:
+    route = respx_mock.post(_EVAL_URL)
+    for requests in (None, []):
+        result = await _engine(make_config(), noop_sleep).evaluate_requests(requests)
+        assert result.verdict is Verdict.SKIP
+        assert result.status is VerdictStatus.SKIPPED
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_evaluate_requests_pdp_error_fails_closed(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    respx_mock.post(_EVAL_URL).respond(status_code=503)
+    engine = _engine(make_config(max_retries=0), noop_sleep)
+    result = await engine.evaluate_requests([_shaped_request()])
+    assert result.verdict is Verdict.BLOCK
+    assert result.status is VerdictStatus.ERROR
+
+
+# --- evaluate_each (per-item verdicts for visibility filtering) ---------------------
+
+
+def _normalized(*names: str):
+    from apparitor.adapters import NormalizedToolCall
+
+    return [NormalizedToolCall(name) for name in names]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_returns_positional_verdicts(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    respx_mock.post(_BATCH_URL).respond(
+        json={"evaluations": [{"decision": True}, {"decision": False}]}
+    )
+    results = await _engine(make_config(), noop_sleep).evaluate_each(_normalized("read", "rm"))
+    assert [r.verdict for r in results] == [Verdict.ALLOW, Verdict.BLOCK]
+    assert all(r.status is VerdictStatus.SUCCESS for r in results)
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_empty_returns_empty(make_config, noop_sleep, respx_mock) -> None:
+    route = respx_mock.post(_BATCH_URL)
+    assert await _engine(make_config(), noop_sleep).evaluate_each([]) == []
+    assert await _engine(make_config(), noop_sleep).evaluate_each(None) == []
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_mapper_abstention_blocks_item(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    # The abstained item fails closed while its sibling is still evaluated — positions align.
+    from apparitor.config import ScannerConfig
+    from apparitor.mapping import DefaultToolCallMapper
+
+    class SelectiveMapper(DefaultToolCallMapper):
+        def map(self, tool_call, request_context):
+            return None if tool_call.name == "hidden" else super().map(tool_call, request_context)
+
+    cfg: ScannerConfig = make_config()
+    respx_mock.post(_BATCH_URL).respond(json={"evaluations": [{"decision": True}]})
+    engine = _engine(cfg, noop_sleep, mapper=SelectiveMapper(cfg))
+    results = await engine.evaluate_each(_normalized("hidden", "read"))
+    assert results[0].verdict is Verdict.BLOCK
+    assert results[0].status is VerdictStatus.ERROR
+    assert results[1].verdict is Verdict.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_count_mismatch_blocks_all(make_config, noop_sleep, respx_mock) -> None:
+    # A non-conformant PDP (short array) must not let any item through.
+    respx_mock.post(_BATCH_URL).respond(json={"evaluations": [{"decision": True}]})
+    results = await _engine(make_config(), noop_sleep).evaluate_each(_normalized("a", "b"))
+    assert all(r.verdict is Verdict.BLOCK and r.status is VerdictStatus.ERROR for r in results)
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_pdp_error_resolves_on_error(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    respx_mock.post(_BATCH_URL).respond(status_code=503)
+    engine = _engine(make_config(max_retries=0, on_error="human_review"), noop_sleep)
+    results = await engine.evaluate_each(_normalized("a", "b"))
+    assert all(
+        r.verdict is Verdict.HUMAN_REVIEW and r.status is VerdictStatus.ERROR for r in results
+    )
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_review_predicate_escalates_item(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    respx_mock.post(_BATCH_URL).respond(
+        json={"evaluations": [{"decision": True, "context": {"step_up": True}}, {"decision": True}]}
+    )
+    engine = _engine(make_config(), noop_sleep, review_predicate=lambda c: bool(c.get("step_up")))
+    results = await engine.evaluate_each(_normalized("transfer", "read"))
+    assert results[0].verdict is Verdict.HUMAN_REVIEW
+    assert results[1].verdict is Verdict.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_missing_subject_blocks_all(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    route = respx_mock.post(_BATCH_URL)
+    results = await _engine(make_config(agent_id=None), noop_sleep).evaluate_each(
+        _normalized("a", "b")
+    )
+    assert all(r.verdict is Verdict.BLOCK and r.status is VerdictStatus.ERROR for r in results)
+    assert route.call_count == 0
