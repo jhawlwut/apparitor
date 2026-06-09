@@ -84,3 +84,49 @@ The Docker-gated integration test in
 [`tests/integration/test_cedar.py`](../../tests/integration/test_cedar.py) builds the
 gateway image and drives the real engine against it. The managed AWS variant — Amazon
 Verified Permissions — lives in [`../avp/`](../avp/). See [../README.md](../README.md).
+
+## Native backend (no gateway)
+
+The gateway above lets the scanner speak plain AuthZEN to the `cedar` CLI. If you'd rather
+skip the gateway entirely, the scanner has a **native Cedar backend** that evaluates the
+policy **in-process** via the optional [`cedarpy`](https://pypi.org/project/cedarpy/) binding
+(no server, no subprocess, no network — the decision never leaves the host, which keeps it
+the sovereignty- and ops-lightest option). Install the extra and point at the vendored
+policy + entities:
+
+```bash
+pip install 'apparitor[cedar]'
+```
+
+```python
+from apparitor import AuthZENScanner, ScannerConfig
+
+scanner = AuthZENScanner(config=ScannerConfig(
+    backend="cedar",                          # evaluate Cedar in-process via cedarpy
+    agent_id="demo-agent",
+    cedar_policies_path="policies.cedar",     # your Cedar policy set
+    cedar_entities_path="entities.json",      # your entities
+    # cedar_schema_path="schema.json",        # optional; enables schema validation
+))
+```
+
+The backend maps the AuthZEN tuple onto a Cedar request (`Agent::"…"` / `Action::"…"` /
+`Tool::"…"`) and is fail-closed: only an explicit Cedar `Allow` is ALLOW; `Deny`,
+`NoDecision`, or any evaluation error denies (the engine resolves it via `on_error`), never a
+coerced allow. A multi-tool-call message uses Cedar's `is_authorized_batch` and is allowed
+only if every call is permitted. Cedar returns boolean decisions only, so the advisory
+`context` / `review_predicate` HITL path does not apply to this backend (as with native OPA).
+
+When to use which:
+
+| | Gateway (AuthZEN) | Native backend (`backend="cedar"`) |
+| --- | --- | --- |
+| Extra process | the `cedar` CLI behind the gateway | none — evaluated in-process |
+| Dependency | Docker / the `cedar` CLI | the `cedarpy` wheel (`apparitor[cedar]`) |
+| Data residency | request crosses the gateway hop | decision stays in your process |
+| Best for | standardising on AuthZEN across engines | embedding Cedar with the least moving parts |
+
+`cedarpy` wraps the Apache-2.0 Cedar engine but is a third-party binding (not AWS-official),
+so it is pinned in the optional `[cedar]` extra and bumped deliberately. The native Cedar
+backend is covered by [`tests/unit/test_cedar_backend.py`](../../tests/unit/test_cedar_backend.py),
+which drives the real engine against this vendored policy.

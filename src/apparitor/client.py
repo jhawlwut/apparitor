@@ -101,6 +101,8 @@ class HTTPDecisionTransport:
         clock: Callable[[], float] | None = None,
     ) -> None:
         self._config = config
+        if config.pdp_url is None:
+            raise AuthZENConfigError(f"pdp_url is required for the {config.backend.value} backend")
         validate_pdp_url(str(config.pdp_url), allow_insecure=config.allow_insecure_pdp)
         # Compose request URLs from the *validated* pdp_url, not from an injected client's
         # base_url, so the SSRF-checked origin (and the path prefix) always governs the

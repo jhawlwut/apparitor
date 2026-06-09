@@ -69,7 +69,9 @@ from .models import (
 __version__ = "0.0.1a0"
 
 if TYPE_CHECKING:
-    # For type-checkers only; the runtime export is lazy (see __getattr__ below).
+    # For type-checkers only; these runtime exports are lazy (see __getattr__ below) because
+    # each pulls an optional dependency (llamafirewall / cedarpy).
+    from .cedar import CedarBackend
     from .scanner import AuthZENScanner
 
 __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readability
@@ -80,9 +82,10 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
     "ScannerConfig",
     "OnError",
     "Backend",
-    # decision backends (AuthZEN client by default; native OPA optional)
+    # decision backends (AuthZEN client by default; native OPA; native Cedar via cedarpy, lazy)
     "DecisionBackend",
     "OPABackend",
+    "CedarBackend",
     "build_backend",
     # engine / decision (LlamaFirewall-free orchestration)
     "AuthorizationEngine",
@@ -134,13 +137,17 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
 
 
 def __getattr__(name: str) -> object:
-    """Lazily expose :class:`AuthZENScanner` (PEP 562).
+    """Lazily expose the optional-dependency exports (PEP 562).
 
-    Importing the scanner pulls in LlamaFirewall; doing it lazily keeps a plain
-    ``import apparitor`` working in LlamaFirewall-free environments.
+    :class:`AuthZENScanner` pulls in LlamaFirewall and :class:`CedarBackend` pulls in cedarpy;
+    importing them lazily keeps a plain ``import apparitor`` working without those extras.
     """
     if name == "AuthZENScanner":
         from .scanner import AuthZENScanner
 
         return AuthZENScanner
+    if name == "CedarBackend":
+        from .cedar import CedarBackend
+
+        return CedarBackend
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
