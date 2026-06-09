@@ -110,7 +110,9 @@ class CedarBackend:
             )
         except Exception as exc:  # malformed uid, schema error, or a surfaced Rust panic
             raise MalformedPDPResponseError(f"Cedar evaluation failed: {exc}") from exc
-        return result.decision == cedarpy.Decision.Allow
+        # bool(): cedarpy is untyped in the type-check env (Any), so coerce the comparison to a
+        # concrete bool rather than returning Any from a bool-typed function.
+        return bool(result.decision == cedarpy.Decision.Allow)
 
     def _decide_batch(self, request: BatchEvaluationRequest) -> list[bool]:
         try:
@@ -121,7 +123,7 @@ class CedarBackend:
         except Exception as exc:
             raise MalformedPDPResponseError(f"Cedar batch evaluation failed: {exc}") from exc
         # Order is preserved by cedarpy; a count mismatch is caught by the engine's aggregate.
-        return [r.decision == cedarpy.Decision.Allow for r in results]
+        return [bool(r.decision == cedarpy.Decision.Allow) for r in results]
 
 
 def _merged_requests(batch: BatchEvaluationRequest) -> list[EvaluationRequest]:
