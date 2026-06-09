@@ -62,7 +62,7 @@ dev = [
   "build>=1.2",
   "twine>=5",
 ]
-# Docker-gated integration tests (examples/openfga, examples/cedar). Kept out of `dev`
+# Docker-gated integration tests (examples/openfga, examples/cedar, examples/opa). Kept out of `dev`
 # so the default unit run needs no Docker; installed only by the `integration` CI job.
 integration = ["testcontainers>=4"]
 # CycloneDX SBOM generator (see scripts/generate_sbom.sh). Pinned here — not in the shell

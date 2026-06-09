@@ -1,0 +1,7 @@
+{
+  "tools": {
+    "send_email": { "sensitivity": "low", "destructive": false },
+    "read_file": { "sensitivity": "low", "destructive": false },
+    "delete_database": { "sensitivity": "high", "destructive": true }
+  }
+}
