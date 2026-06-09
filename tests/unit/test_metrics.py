@@ -175,7 +175,7 @@ async def test_batch_records_one_decision_and_logs_each_call(
 
     assert metrics.decisions == {("allow", "success"): 1}  # one decision for the message
     assert metrics.latency_count == 1
-    assert "tools=['read', 'write']" in caplog.text  # both calls in the one structured line
+    assert "resources=['read', 'write']" in caplog.text  # both calls in one structured line
 
 
 @pytest.mark.asyncio

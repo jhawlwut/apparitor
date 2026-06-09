@@ -140,10 +140,13 @@ class AuthorizationEngine:
 
         For visibility filtering (e.g. shaping an MCP ``tools/list``), where a deny for one
         item must not block its siblings. Fail-closed per item: a mapper abstention or any
-        evaluation fault yields BLOCK for the affected items — callers hide, never widen.
-        One batch PDP round trip; the ALLOW-only cache is not consulted (the aggregate
-        enforcement entrypoints own that hot path), and there is no per-subject decision
-        log — these are advisory visibility decisions, counted in metrics only.
+        evaluation fault yields a non-ALLOW verdict (BLOCK, or ``on_error``'s resolution)
+        for the affected items — callers hide, never widen. One batch PDP round trip; the
+        ALLOW-only cache is not consulted (the aggregate enforcement entrypoints own that
+        hot path), and there is no per-subject decision log — just a summary INFO line and
+        one ``record_decision`` per item (sharing the batch latency, and indistinguishable
+        from enforcement decisions in the counters — account for that when alerting on
+        block rates).
         """
         if not calls:
             return []
@@ -200,26 +203,32 @@ class AuthorizationEngine:
         """Evaluate with the fail-closed error tables (never raises, never ALLOW on error)."""
         try:
             return await self._evaluate(requests)
-        except AuthZENClientError as exc:
+        except Exception as exc:
+            return self._fault_verdict(exc)
+
+    def _fault_verdict(self, exc: Exception) -> VerdictResult:
+        """The one fail-closed error table, shared by every evaluation path."""
+        if isinstance(exc, AuthZENClientError):
             return VerdictResult(Verdict.BLOCK, f"{_DENY_REASON} ({exc})", VerdictStatus.ERROR)
-        except AuthZENServiceError as exc:
+        if isinstance(exc, AuthZENServiceError):
             verdict = resolve_error(self._config.on_error, f"PDP unavailable: {exc}")
             logger.warning("authzen: PDP error, resolved as %s", verdict.verdict.value)
             return verdict
-        except Exception:
-            # Defense in depth: any unexpected internal error fails closed, never ALLOW.
-            logger.exception("authzen: unexpected internal error during evaluation")
-            return VerdictResult(
-                Verdict.BLOCK, f"{_DENY_REASON} (internal error)", VerdictStatus.ERROR
-            )
+        # Defense in depth: any unexpected internal error fails closed, never ALLOW.
+        logger.exception("authzen: unexpected internal error during evaluation")
+        return VerdictResult(Verdict.BLOCK, f"{_DENY_REASON} (internal error)", VerdictStatus.ERROR)
 
     async def _decide_each(
         self, calls: list[NormalizedToolCall], ctx: Mapping[str, Any]
     ) -> list[VerdictResult]:
         try:
             mapped = [self._mapper.map(call, ctx) for call in calls]
-        except AuthZENConfigError as exc:
-            failed = VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR)
+        except Exception as exc:  # incl. AuthZENConfigError — a mapper fault blocks every item
+            failed = (
+                VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR)
+                if isinstance(exc, AuthZENConfigError)
+                else self._fault_verdict(exc)
+            )
             return [failed] * len(calls)
 
         # Abstained items stay BLOCK so positions align and abstention can never reveal.
@@ -245,28 +254,17 @@ class AuthorizationEngine:
                     options=EvaluationsOptions(),
                 )
             )
-        except AuthZENClientError as exc:
-            verdict = VerdictResult(Verdict.BLOCK, f"{_DENY_REASON} ({exc})", VerdictStatus.ERROR)
-        except AuthZENServiceError as exc:
-            verdict = resolve_error(self._config.on_error, f"PDP unavailable: {exc}")
-            logger.warning("authzen: PDP error, resolved as %s", verdict.verdict.value)
-        except Exception:
-            logger.exception("authzen: unexpected internal error during evaluation")
-            verdict = VerdictResult(
-                Verdict.BLOCK, f"{_DENY_REASON} (internal error)", VerdictStatus.ERROR
-            )
-        else:
-            if len(response.evaluations) == len(indexed):
-                for (i, _), item in zip(indexed, response.evaluations, strict=True):
-                    single = map_single(
-                        item.decision, wants_review=self._wants_review(item.context)
-                    )
-                    results[i] = VerdictResult(single, _reason_for(single))
-                return results
-            # Non-conformant PDP (short/long array): nothing in the batch is trustworthy.
-            verdict = VerdictResult(
-                Verdict.BLOCK, f"{_DENY_REASON} (mismatched batch)", VerdictStatus.ERROR
-            )
+            if len(response.evaluations) != len(indexed):
+                # Non-conformant PDP (short/long array): nothing in the batch is trustworthy.
+                raise AuthZENClientError("mismatched batch")
+            for (i, _), item in zip(indexed, response.evaluations, strict=True):
+                single = map_single(item.decision, wants_review=self._wants_review(item.context))
+                results[i] = VerdictResult(single, _reason_for(single))
+            return results
+        except Exception as exc:
+            # Covers the PDP round trip AND per-item mapping (a raising review predicate
+            # must fail closed here exactly as it does on the aggregate path).
+            verdict = self._fault_verdict(exc)
         for i, _ in indexed:
             results[i] = verdict
         return results
@@ -360,7 +358,7 @@ class AuthorizationEngine:
         correlation = (first.context or {}).get("correlation_id")
         logger.info(
             "authzen decision verdict=%s status=%s subject=%s correlation=%s "
-            "tools=%s fingerprints=%s latency_ms=%.1f",
+            "resources=%s fingerprints=%s latency_ms=%.1f",
             result.verdict.value,
             result.status.value,
             first.subject.id,

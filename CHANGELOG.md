@@ -24,10 +24,15 @@ All notable changes to this project are documented here. The format follows
     everything).
   - Opt-in `allow_workload_subject=True` authorizes verified client-credentials tokens
     (no `sub` claim) as the distinct `Subject(type="workload", id=<client_id>)` — never
-    coerced into a user subject; off by default, such tokens keep refusing.
+    coerced into a user subject; off by default, such tokens keep refusing. The
+    `"workload"` subject type is reserved (the constructor rejects it for claim-derived
+    and static subjects). Only `tools/list` is filtered; `resources/list` and
+    `prompts/list` still advertise names/URIs even though reads/gets are gated.
 - `AuthorizationEngine.evaluate_requests()` (pre-mapped requests, e.g. adapter-shaped
   resource/prompt tuples) and `AuthorizationEngine.evaluate_each()` (positional per-item
   verdicts over one batch round trip, for visibility filtering — fail-closed per item).
+- The structured decision log's resource-id field is now `resources=` (was `tools=`) —
+  it can carry resource URIs and prompt keys, not just tool names. Update log parsers.
 - **Three-PEP portability demo (`examples/three-peps/`).** The same vendored Cedar policy
   (`examples/cedar/policies.cedar`, deny-override on `destructive == true`) enforced
   identically at the LlamaFirewall scanner, the NeMo Guardrails rail, and the FastMCP
