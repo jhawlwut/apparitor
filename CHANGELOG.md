@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Three-PEP portability demo (`examples/three-peps/`).** The same vendored Cedar policy
+  (`examples/cedar/policies.cedar`, deny-override on `destructive == true`) enforced
+  identically at the LlamaFirewall scanner, the NeMo Guardrails rail, and the FastMCP
+  middleware over the in-process Cedar backend — no Docker, no network. Self-asserting
+  (exits non-zero on any verdict mismatch) and gated in CI by the `three-pep-demo` job,
+  which installs all three enforcement-point extras and requires every lane to run.
 - **FastMCP server-middleware enforcement point (`apparitor.fastmcp`, optional `[fastmcp]`
   extra).** `FastMCPAuthorizationMiddleware` authorizes every MCP `tools/call` server-side,
   before the tool executes, over the same `AuthorizationEngine` as the LlamaFirewall scanner
