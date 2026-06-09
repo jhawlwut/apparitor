@@ -100,6 +100,12 @@ def build_backend(
     clock: Callable[[], float] | None = None,
 ) -> DecisionBackend:
     """Construct the decision backend selected by ``config.backend``."""
+    if config.backend is Backend.CEDAR:
+        # In-process backend: no HTTP transport (no http_client/sleep/clock). Imported lazily
+        # so the optional cedarpy dependency is only required when this backend is selected.
+        from .cedar import CedarBackend
+
+        return CedarBackend(config)
     kwargs: dict[str, Any] = {"http_client": http_client, "sleep": sleep, "clock": clock}
     if config.backend is Backend.OPA:
         return OPABackend(config, **kwargs)

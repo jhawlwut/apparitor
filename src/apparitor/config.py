@@ -21,11 +21,14 @@ class Backend(str, Enum):
 
     ``authzen`` (default) speaks the AuthZEN Access Evaluation API to any compliant PDP.
     ``opa`` talks Open Policy Agent's native Data API directly (no AuthZEN gateway), for
-    deployments that run OPA but don't front it with an AuthZEN endpoint.
+    deployments that run OPA but don't front it with an AuthZEN endpoint. ``cedar`` evaluates
+    Cedar policies in-process via the optional ``cedarpy`` dependency (no server, no network) —
+    the decision never leaves the host.
     """
 
     AUTHZEN = "authzen"
     OPA = "opa"
+    CEDAR = "cedar"
 
 
 class OnError(str, Enum):
@@ -50,7 +53,9 @@ class ScannerConfig(BaseModel):
     backend: Backend = Backend.AUTHZEN
 
     # --- PDP endpoint ---
-    pdp_url: AnyHttpUrl
+    # Required for the HTTP backends (authzen, opa); unused by the in-process cedar backend,
+    # so it is optional here and enforced at backend construction.
+    pdp_url: AnyHttpUrl | None = None
     # AuthZEN backend paths (ignored when backend="opa").
     evaluation_path: str = "/access/v1/evaluation"
     batch_path: str = "/access/v1/evaluations"
@@ -60,6 +65,12 @@ class ScannerConfig(BaseModel):
     # (examples/opa/policy.rego). A path that doesn't resolve to a boolean rule fails closed
     # (deny), so a mismatch is safe but will deny every call until corrected.
     opa_decision_path: str = "apparitor/authz/allow"
+    # Cedar backend (backend="cedar"): paths to the vendored Cedar policy set, entities, and
+    # an optional schema. policies + entities are required for the cedar backend (enforced at
+    # construction). Policies/entities are loaded once and evaluated in-process.
+    cedar_policies_path: str | None = None
+    cedar_entities_path: str | None = None
+    cedar_schema_path: str | None = None
 
     # --- AuthZEN tuple defaults (mappers may override per call) ---
     subject_type: str = "agent"
