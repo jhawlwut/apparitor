@@ -15,7 +15,7 @@ The policy is the "SCP for agents" deny-override: `forbid` on `destructive == tr
 every `permit`, so `delete_database` blocks for *any* subject while `read_file` is allowed
 for the demo agent. Each lane must print the same table:
 
-```
+```text
 read_file        -> ALLOW
 delete_database  -> BLOCK
 ```
