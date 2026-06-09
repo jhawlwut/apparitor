@@ -48,15 +48,29 @@ async def _backend(make_config, noop_sleep, **cfg) -> OPABackend:
 # --- backend selection --------------------------------------------------------------
 
 
-def test_build_backend_selects_by_config(make_config) -> None:
-    assert isinstance(build_backend(make_config()), AuthZENClient)
-    assert isinstance(build_backend(make_config(backend="opa")), OPABackend)
+@pytest.mark.asyncio
+async def test_build_backend_selects_by_config(make_config) -> None:
+    authzen = build_backend(make_config())
+    opa = build_backend(make_config(backend="opa"))
+    try:
+        assert isinstance(authzen, AuthZENClient)
+        assert isinstance(opa, OPABackend)
+    finally:  # close the owned httpx clients so teardown stays clean
+        await authzen.aclose()
+        await opa.aclose()
 
 
-def test_backends_satisfy_the_protocol(make_config) -> None:
+@pytest.mark.asyncio
+async def test_backends_satisfy_the_protocol(make_config) -> None:
     # runtime_checkable Protocol: both backends are structurally a DecisionBackend.
-    assert isinstance(build_backend(make_config()), DecisionBackend)
-    assert isinstance(build_backend(make_config(backend="opa")), DecisionBackend)
+    authzen = build_backend(make_config())
+    opa = build_backend(make_config(backend="opa"))
+    try:
+        assert isinstance(authzen, DecisionBackend)
+        assert isinstance(opa, DecisionBackend)
+    finally:
+        await authzen.aclose()
+        await opa.aclose()
 
 
 def test_backend_coerced_from_string(make_config) -> None:
