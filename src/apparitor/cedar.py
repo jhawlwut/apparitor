@@ -108,11 +108,12 @@ class CedarBackend:
             result = cedarpy.is_authorized(
                 self._cedar_request(request), self._policies, self._entities, self._schema
             )
-        except Exception as exc:  # malformed uid, schema error, or a surfaced Rust panic
+            # Kept inside the try so a malformed result (e.g. no ``.decision``) maps to
+            # MalformedPDPResponseError, not an escaping AttributeError. bool(): cedarpy is
+            # untyped in the type-check env (Any), so coerce to a concrete bool.
+            return bool(result.decision == cedarpy.Decision.Allow)
+        except Exception as exc:  # malformed uid/result, schema error, or a surfaced Rust panic
             raise MalformedPDPResponseError(f"Cedar evaluation failed: {exc}") from exc
-        # bool(): cedarpy is untyped in the type-check env (Any), so coerce the comparison to a
-        # concrete bool rather than returning Any from a bool-typed function.
-        return bool(result.decision == cedarpy.Decision.Allow)
 
     def _decide_batch(self, request: BatchEvaluationRequest) -> list[bool]:
         try:
@@ -120,10 +121,11 @@ class CedarBackend:
             results = cedarpy.is_authorized_batch(
                 requests, self._policies, self._entities, self._schema
             )
+            # Order is preserved by cedarpy; a count mismatch is caught by the engine's
+            # aggregate. Kept inside the try so a malformed result maps to a fail-closed error.
+            return [bool(r.decision == cedarpy.Decision.Allow) for r in results]
         except Exception as exc:
             raise MalformedPDPResponseError(f"Cedar batch evaluation failed: {exc}") from exc
-        # Order is preserved by cedarpy; a count mismatch is caught by the engine's aggregate.
-        return [bool(r.decision == cedarpy.Decision.Allow) for r in results]
 
 
 def _merged_requests(batch: BatchEvaluationRequest) -> list[EvaluationRequest]:
