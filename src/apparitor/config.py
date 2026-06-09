@@ -16,6 +16,18 @@ from enum import Enum
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 
 
+class Backend(str, Enum):
+    """Which decision backend the engine talks to.
+
+    ``authzen`` (default) speaks the AuthZEN Access Evaluation API to any compliant PDP.
+    ``opa`` talks Open Policy Agent's native Data API directly (no AuthZEN gateway), for
+    deployments that run OPA but don't front it with an AuthZEN endpoint.
+    """
+
+    AUTHZEN = "authzen"
+    OPA = "opa"
+
+
 class OnError(str, Enum):
     """How to resolve a verdict when the PDP cannot return a usable decision.
 
@@ -34,10 +46,17 @@ class ScannerConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # --- decision backend ---
+    backend: Backend = Backend.AUTHZEN
+
     # --- PDP endpoint ---
     pdp_url: AnyHttpUrl
+    # AuthZEN backend paths (ignored when backend="opa").
     evaluation_path: str = "/access/v1/evaluation"
     batch_path: str = "/access/v1/evaluations"
+    # OPA backend (backend="opa"): the Rego decision path under OPA's Data API
+    # (``/v1/data/<path>``) — the package plus a boolean rule, e.g. "apparitor/authz/allow".
+    opa_decision_path: str = "apparitor/authz/allow"
 
     # --- AuthZEN tuple defaults (mappers may override per call) ---
     subject_type: str = "agent"

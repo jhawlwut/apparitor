@@ -52,6 +52,19 @@ _OPENFGA_URL = (
 )
 
 
+# OPA's native backend (apparitor backend="opa") talks OPA's own Data API, so the native
+# integration test runs OPA's release binary directly — no Docker, no AuthZEN gateway. The
+# version and SHA-256 are pinned and the binary is verified before it is ever executed,
+# matching the digest-pinned posture of the gateway image. Bump deliberately, keeping the
+# checksum in lockstep (the official per-asset checksum is published at <asset>.sha256).
+_OPA_VERSION = "1.17.1"
+_OPA_SHA256 = "3d4bb88482958d990351ec5d2f7558509992776bc473bc1b78d86d76cb993ca3"
+_OPA_URL = (
+    f"https://github.com/open-policy-agent/opa/releases/download/"
+    f"v{_OPA_VERSION}/opa_linux_amd64_static"
+)
+
+
 def _free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -87,6 +100,57 @@ def _ensure_openfga_binary() -> str:
         tar.extract(member, cache)
     binary.chmod(0o755)
     return str(binary)
+
+
+def _ensure_opa_binary() -> str:
+    """Download (cached) and verify the pinned OPA binary; return its path.
+
+    OPA ships a single static binary (not an archive), so the download *is* the executable.
+    Its SHA-256 is checked on every call — including against the cache — before it is made
+    executable or run, so a tampered cache in the world-writable temp dir is rejected.
+    """
+    cache = Path(tempfile.gettempdir()) / f"apparitor-opa-{_OPA_VERSION}"
+    cache.mkdir(parents=True, exist_ok=True)
+    binary = cache / "opa"
+    if not binary.exists():
+        with urllib.request.urlopen(_OPA_URL, timeout=30) as resp:
+            binary.write_bytes(resp.read())
+    digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+    if digest != _OPA_SHA256:
+        binary.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"OPA {_OPA_VERSION} checksum mismatch: got {digest}, expected {_OPA_SHA256}"
+        )
+    binary.chmod(0o755)
+    return str(binary)
+
+
+@contextlib.contextmanager
+def native_opa(policy: Path, data: Path) -> Iterator[str]:
+    """Run the pinned OPA binary in server mode over the vendored policy + data; yield base URL.
+
+    A Docker-free backend for the native OPA integration test (linux/amd64 only); skips
+    cleanly on other platforms rather than failing.
+    """
+    if sys.platform != "linux" or platform.machine() not in ("x86_64", "amd64"):
+        pytest.skip("native OPA backend supports linux/amd64 only")
+    binary = _ensure_opa_binary()
+    port = _free_port()
+    proc = subprocess.Popen(
+        [binary, "run", "--server", f"--addr=localhost:{port}", str(policy), str(data)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        yield f"http://localhost:{port}"
+    finally:
+        proc.terminate()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=10)
+        if proc.poll() is None:
+            proc.kill()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=5)
 
 
 @contextlib.contextmanager
