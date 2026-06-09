@@ -70,14 +70,16 @@ __version__ = "0.0.1a0"
 
 if TYPE_CHECKING:
     # For type-checkers only; these runtime exports are lazy (see __getattr__ below) because
-    # each pulls an optional dependency (llamafirewall / cedarpy).
+    # each pulls an optional dependency (llamafirewall / cedarpy / nemoguardrails).
     from .cedar import CedarBackend
+    from .nemo import NeMoAuthorizationRails
     from .scanner import AuthZENScanner
 
 __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readability
     "__version__",
-    # scanner (lazy)
+    # firewall adapters (lazy; each needs an optional firewall SDK)
     "AuthZENScanner",
+    "NeMoAuthorizationRails",
     # config
     "ScannerConfig",
     "OnError",
@@ -139,8 +141,9 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
 def __getattr__(name: str) -> object:
     """Lazily expose the optional-dependency exports (PEP 562).
 
-    :class:`AuthZENScanner` pulls in LlamaFirewall and :class:`CedarBackend` pulls in cedarpy;
-    importing them lazily keeps a plain ``import apparitor`` working without those extras.
+    :class:`AuthZENScanner` pulls in LlamaFirewall, :class:`CedarBackend` pulls in cedarpy, and
+    :class:`NeMoAuthorizationRails` pulls in nemoguardrails; importing them lazily keeps a plain
+    ``import apparitor`` working without those extras.
     """
     if name == "AuthZENScanner":
         from .scanner import AuthZENScanner
@@ -150,4 +153,8 @@ def __getattr__(name: str) -> object:
         from .cedar import CedarBackend
 
         return CedarBackend
+    if name == "NeMoAuthorizationRails":
+        from .nemo import NeMoAuthorizationRails
+
+        return NeMoAuthorizationRails
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

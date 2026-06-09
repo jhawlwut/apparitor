@@ -57,6 +57,12 @@ llamafirewall = ["llamafirewall>=0.0.1"]
 # so the core stays standalone — importing `apparitor.cedar` without it raises
 # MissingDependencyError. Bump deliberately in lockstep with the Cedar engine.
 cedar = ["cedarpy>=4.8,<4.9"]
+# NeMo Guardrails (NVIDIA) rail adapter (apparitor.nemo). The second agentic-firewall
+# integration alongside the LlamaFirewall scanner. Optional so the core stays standalone —
+# importing `apparitor.nemo` without it raises MissingDependencyError. NeMo is pre-1.0; the
+# floor guarantees the register_action / output_mapping / ActionResult APIs the adapter uses,
+# and the ceiling guards against a breaking minor (bump deliberately).
+nemo = ["nemoguardrails>=0.21,<0.23"]
 dev = [
   "pytest>=8",
   "pytest-asyncio>=0.23",
@@ -102,9 +108,10 @@ strict = true
 files = ["src"]
 plugins = ["pydantic.mypy"]
 
-# LlamaFirewall and cedarpy ship no type stubs and may be absent in the lint environment.
+# LlamaFirewall, cedarpy and nemoguardrails ship no type stubs and may be absent in the lint
+# environment.
 [[tool.mypy.overrides]]
-module = ["llamafirewall.*", "cedarpy.*"]
+module = ["llamafirewall.*", "cedarpy.*", "nemoguardrails.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -122,10 +129,10 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["apparitor"]
-# scanner.py (LlamaFirewall) and cedar.py (cedarpy) each depend on an optional extra and are
-# covered by their own CI jobs (`scanner`, `cedar`) that install the extra — not the default
-# unit run, which must import the package without those deps.
-omit = ["*/scanner.py", "*/cedar.py"]
+# scanner.py (LlamaFirewall), cedar.py (cedarpy) and nemo.py (nemoguardrails) each depend on an
+# optional extra and are covered by their own CI jobs (`scanner`, `cedar`, `nemo`) that install
+# the extra — not the default unit run, which must import the package without those deps.
+omit = ["*/scanner.py", "*/cedar.py", "*/nemo.py"]
 
 [tool.coverage.report]
 exclude_lines = [
