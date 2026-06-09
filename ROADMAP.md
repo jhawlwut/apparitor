@@ -38,10 +38,10 @@ Status legend: ✅ done · 🔜 next · 📋 planned.
 
 ## ✅ M3 — Policy-engine integrations & conformance
 
-- Worked examples over AuthZEN: **OpenFGA** (native, experimental AuthZEN; ReBAC) and
-  **Cedar** (policy-as-code, via a local AuthZEN gateway) — digest-pinned images, vendored
-  models/policies, smoke scripts. Together they exercise both ReBAC and ABAC over the same
-  AuthZEN API.
+- Worked examples over AuthZEN: **OpenFGA** (native, experimental AuthZEN; ReBAC),
+  **Cedar** (policy-as-code, via a local AuthZEN gateway), and **OPA / Rego** (policy-as-code,
+  via a local AuthZEN gateway) — digest-pinned images, vendored models/policies, smoke
+  scripts. Together they exercise both ReBAC and ABAC over the same AuthZEN API.
 - Integration tests via testcontainers (Docker-gated; skip when absent).
 - Conformance against the vendored OpenID AuthZEN interop decisions dataset.
 
