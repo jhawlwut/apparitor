@@ -66,8 +66,9 @@ Agent: "Delete the production database"
 
 ## Quickstart (target API — wiring is ≤10 lines)
 
-apparitor ships today as a LlamaFirewall scanner. Point it at any AuthZEN-compliant policy
-decision point (PDP) and bind it to the assistant role:
+apparitor ships today as a LlamaFirewall scanner and a NeMo Guardrails rail
+(`NeMoAuthorizationRails`). The LlamaFirewall path: point the scanner at any
+AuthZEN-compliant policy decision point (PDP) and bind it to the assistant role:
 
 ```python
 from llamafirewall import LlamaFirewall, Role
@@ -182,14 +183,15 @@ email), so treat the `apparitor` logger as sensitive and route it accordingly.
 | [**FastMCP**](https://github.com/PrefectHQ/fastmcp) server middleware | Prefect | shipping (`FastMCPAuthorizationMiddleware`) |
 
 **Policy engines** (where the authorization decision is made). apparitor reaches these over
-AuthZEN today; native adapters that skip the AuthZEN hop are on the roadmap:
+AuthZEN; OPA and Cedar also have native backends that skip the AuthZEN hop, selected by
+config (`backend="opa"` / `backend="cedar"`):
 
 | Engine | Paradigm | How apparitor reaches it | Example |
 | --- | --- | --- | --- |
 | **Mock PDP** (testing/demo) | — | AuthZEN | [`examples/mock_pdp/`](examples/mock_pdp/) |
 | **OpenFGA** | Zanzibar / ReBAC | native AuthZEN (experimental) | [`examples/openfga/`](examples/openfga/) |
-| **Cedar** | policy-as-code (ABAC) | AuthZEN gateway | [`examples/cedar/`](examples/cedar/) |
-| **OPA / Rego** | policy-as-code | AuthZEN ([`opa-authzen`](https://github.com/kanywst/opa-authzen)) | [`docs/setup.md`](docs/setup.md) |
+| **Cedar** | policy-as-code (ABAC) | AuthZEN gateway · native in-process (`backend="cedar"`) | [`examples/cedar/`](examples/cedar/) |
+| **OPA / Rego** | policy-as-code | AuthZEN gateway · native Data API (`backend="opa"`) | [`examples/opa/`](examples/opa/) |
 | **Amazon Verified Permissions** | managed Cedar | [AWS AuthZEN interface](https://github.com/aws-samples/sample-authzen-interface-verified-permissions) | [`examples/avp/`](examples/avp/) |
 | Any AuthZEN 1.0 PDP (Cerbos, Topaz, …) | varies | AuthZEN | [`docs/setup.md`](docs/setup.md) |
 
