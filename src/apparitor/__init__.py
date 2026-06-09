@@ -44,6 +44,7 @@ from .errors import (
     PDPUnavailableError,
 )
 from .mapping import (
+    MCP_SERVER_LABEL_KEY,
     DefaultToolCallMapper,
     MCPResourceMapper,
     ToolCallMapper,
@@ -124,6 +125,7 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
     "ToolCallMapper",
     "DefaultToolCallMapper",
     "MCPResourceMapper",
+    "MCP_SERVER_LABEL_KEY",
     "current_subject",
     "current_request_context",
     "subject_scope",

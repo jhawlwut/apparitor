@@ -92,9 +92,14 @@ not a host-asserted value (`pip install "apparitor[fastmcp]"`):
 from fastmcp import FastMCP
 from apparitor.fastmcp import FastMCPAuthorizationMiddleware
 
-server = FastMCP("files", auth=...)   # your token verifier supplies the identity
+server = FastMCP("files", auth=my_token_verifier)   # auth supplies the validated identity
 server.add_middleware(FastMCPAuthorizationMiddleware(pdp_url="https://pdp.internal"))
 ```
+
+Register the middleware **after** any custom auth middleware (so the token is populated);
+it gates `tools/call` only (resource reads and prompts are not yet authorized), and under
+server composition pin `server_label` for stable policy keys. FastMCP never tears middleware
+down, so call `await middleware.aclose()` on shutdown to release the PDP client.
 
 The AuthZEN client and models are **adapter-free** and usable on their own:
 
@@ -108,8 +113,9 @@ Every decision needs a **subject** — the principal your policy is written agai
 never infers it from model or tool output (that would be a [confused
 deputy](https://en.wikipedia.org/wiki/Confused_deputy_problem)); the **host** supplies it,
 request-scoped, because the firewall layer sees messages, not an authenticated principal.
-There are two levels, and the same seam feeds either adapter (the LlamaFirewall scanner or
-the NeMo rail).
+There are two levels, and the same seam feeds every adapter (the LlamaFirewall scanner, the
+NeMo rail, the FastMCP middleware). At the MCP boundary the middleware fills this seam
+itself from the validated OAuth token — see the note below.
 
 **Level 0 — a static agent identity.** Set `agent_id`; every call is authorized as that
 agent. Enough for policies that don't depend on the end user — *"no agent may call a
@@ -156,11 +162,14 @@ m.cache_hits, m.cache_misses                # cache effectiveness (single-call d
 ```
 
 To export, pass your own `MetricsSink` (forward to Prometheus/OpenTelemetry) or
-`NoopMetrics()` to disable. Each decision also emits one structured audit log line (verdict,
+`NoopMetrics()` to disable. The default `InMemoryMetrics` is lock-free and meant for
+single-event-loop use; a long-lived server scraping it from another thread (or a sink shared
+across threads) must provide its own synchronisation — pass a thread-safe `MetricsSink`.
+Each decision also emits one structured audit log line (verdict,
 status, subject id, correlation id, tool names, and an argument *fingerprint*). Raw tool
 arguments and tokens are never logged — arguments are fingerprinted. The subject id is the
-decision principal (it may itself be an identifier such as an email), so treat the
-`apparitor` logger as sensitive and route it accordingly.
+decision principal (with the FastMCP middleware that is the OAuth `sub`, which may be an
+email), so treat the `apparitor` logger as sensitive and route it accordingly.
 
 ## What apparitor connects
 
@@ -170,7 +179,7 @@ decision principal (it may itself be an identifier such as an email), so treat t
 | --- | --- | --- |
 | [**LlamaFirewall**](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall) | Meta | shipping (`AuthZENScanner`) |
 | [**NeMo Guardrails**](https://github.com/NVIDIA/NeMo-Guardrails) | NVIDIA | shipping (`NeMoAuthorizationRails`) |
-| [**FastMCP**](https://github.com/PrefectHQ/fastmcp) server middleware | community (MCP) | shipping (`FastMCPAuthorizationMiddleware`) |
+| [**FastMCP**](https://github.com/PrefectHQ/fastmcp) server middleware | Prefect | shipping (`FastMCPAuthorizationMiddleware`) |
 
 **Policy engines** (where the authorization decision is made). apparitor reaches these over
 AuthZEN today; native adapters that skip the AuthZEN hop are on the roadmap:
