@@ -34,6 +34,10 @@ from typing import Any
 # defined, so a missing/undefined result can only mean an OPA error -> fail closed.
 _QUERY = "data.apparitor.authz.allow"
 
+# Bound a single `opa eval`: a hung process (e.g. a pathological policy) fails closed rather
+# than blocking the worker thread indefinitely. Generous — a healthy eval is sub-second.
+_EVAL_TIMEOUT_S = 10
+
 # Batch bounds: a multi-tool-call message is small, so cap the entry count and the request
 # body. Each entry forks an `opa` process, so an unbounded array/body is a fork/memory
 # amplification lever for an unauthenticated caller. Generous for the scanner's real use.
@@ -88,10 +92,15 @@ class OpaEvaluator:
         ]
         try:
             result = subprocess.run(
-                cmd, input=json.dumps(input_doc), capture_output=True, text=True, check=False
+                cmd,
+                input=json.dumps(input_doc),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_EVAL_TIMEOUT_S,
             )
-        except OSError:
-            return False  # opa missing/unrunnable -> fail closed
+        except (OSError, subprocess.TimeoutExpired):
+            return False  # opa missing/unrunnable or a hung eval -> fail closed
         if result.returncode != 0:
             return False  # a policy/parse error is never an allow
         return _extract_decision(result.stdout)
