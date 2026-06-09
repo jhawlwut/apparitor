@@ -43,6 +43,48 @@ scanner = AuthZENScanner(
 > address unless `allow_insecure_pdp=True` (local development only). TLS verification is on
 > by default. See [requirements.md §3.7](requirements.md).
 
+## Identity: resolving the subject
+
+The **subject** is the principal the PDP authorizes — usually the end user the agent acts
+for, not the agent process. apparitor resolves it per request, in this order, and fails
+closed (`AuthZENConfigError`) if none is found:
+
+1. a `subject` in `current_request_context`,
+2. the `current_subject` context variable (set it with `subject_scope`),
+3. `config.agent_id` — a static fallback, mapped to `Subject(type=config.subject_type, id=agent_id)`.
+
+Bind the authenticated user for the agent run with `subject_scope` rather than setting
+`current_subject` directly — it resets the value on exit, so a subject can never leak to a
+later request that reuses the same task or event loop:
+
+```python
+from apparitor import Subject, subject_scope
+
+# In your request handler, where the user is already authenticated:
+with subject_scope(Subject(type="user", id=authenticated_user_id)):
+    result = await firewall.scan_async(assistant_message)
+```
+
+Attach request-scoped enrichment via `current_request_context`: `user_id`, `conversation_id`,
+and `correlation_id` are forwarded to the PDP as AuthZEN `context` for policy conditions. (A
+`subject` placed here is instead used to resolve the request's subject — see the order above —
+not forwarded as context.)
+
+```python
+from apparitor.mapping import current_request_context
+
+token = current_request_context.set({"user_id": "alice@acme.com", "conversation_id": "c-42"})
+try:
+    result = await firewall.scan_async(assistant_message)
+finally:
+    current_request_context.reset(token)
+```
+
+> **Security:** the subject and request context must be **host-trusted, out-of-band** data,
+> established by your authentication layer — never derived from model output or a tool result.
+> Deriving the principal from model output would let a prompt-injected agent choose its own
+> identity (a confused deputy). See [requirements.md](requirements.md).
+
 ## Mock PDP
 
 A tiny in-process AuthZEN PDP for tests and demos (configurable allow/deny rules, no
