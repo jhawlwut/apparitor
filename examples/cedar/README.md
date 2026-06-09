@@ -110,12 +110,18 @@ scanner = AuthZENScanner(config=ScannerConfig(
 ))
 ```
 
+Paths are resolved against the process working directory, so this snippet only finds the files
+if you run it from `examples/cedar/`; use absolute paths in production.
+
 The backend maps the AuthZEN tuple onto a Cedar request (`Agent::"…"` / `Action::"…"` /
-`Tool::"…"`) and is fail-closed: only an explicit Cedar `Allow` is ALLOW; `Deny`,
-`NoDecision`, or any evaluation error denies (the engine resolves it via `on_error`), never a
-coerced allow. A multi-tool-call message uses Cedar's `is_authorized_batch` and is allowed
-only if every call is permitted. Cedar returns boolean decisions only, so the advisory
-`context` / `review_predicate` HITL path does not apply to this backend (as with native OPA).
+`Tool::"…"`) and is fail-closed: only an explicit Cedar `Allow` is ALLOW; `Deny` and
+`NoDecision` deny, never a coerced allow. The policy set is parsed (and, if you pass
+`cedar_schema_path`, validated) **at construction**, so a policy typo raises an
+`AuthZENConfigError` at startup rather than silently denying every request — Cedar treats a
+parse error as `NoDecision`, not an exception. A multi-tool-call message uses Cedar's
+`is_authorized_batch` and is allowed only if every call is permitted. Cedar returns boolean
+decisions only, so the advisory `context` / `review_predicate` HITL path does not apply to this
+backend (as with native OPA).
 
 When to use which:
 

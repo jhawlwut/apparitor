@@ -1,5 +1,5 @@
 """Smoke tests: package imports, LlamaFirewall-free standalone use, and the
-LlamaFirewall import guard. Behavioural coverage lives in the dedicated test modules
+LlamaFirewall / cedarpy import guards. Behavioural coverage lives in the dedicated test modules
 (``test_engine``, ``test_client``, ``test_mapping``, ``test_decision``, ``test_cache``,
 ``test_security``, ``test_scanner``)."""
 
@@ -40,6 +40,21 @@ def test_scanner_without_llamafirewall_raises_missing_dependency() -> None:
         from apparitor.scanner import AuthZENScanner
 
         assert issubclass(AuthZENScanner, Scanner)
+
+
+def test_cedar_backend_without_cedarpy_raises_missing_dependency() -> None:
+    from apparitor.errors import MissingDependencyError
+
+    try:
+        import cedarpy  # noqa: F401
+    except ImportError:
+        with pytest.raises(MissingDependencyError):
+            importlib.import_module("apparitor.cedar")
+    else:
+        # cedarpy is installed; the module imports and exposes CedarBackend.
+        from apparitor.cedar import CedarBackend
+
+        assert CedarBackend.__name__ == "CedarBackend"
 
 
 def test_single_evaluation_request_roundtrips_spec_json() -> None:
