@@ -10,10 +10,15 @@ Isolated in its own module (like :mod:`apparitor.scanner`) so ``cedarpy`` stays 
 extra and the rest of the package imports without it; importing this module without it raises
 :class:`~apparitor.errors.MissingDependencyError`.
 
-Fail-closed: only an explicit Cedar ``Allow`` is ALLOW. ``Deny``/``NoDecision``, any
-evaluation error, or any exception (including a Rust panic surfaced as a Python error) denies
-— raised as :class:`MalformedPDPResponseError` and resolved through ``on_error`` — never a
-coerced allow. This mirrors the strict ``StrictBool`` invariant the AuthZEN/OPA backends use.
+Fail-closed: only an explicit Cedar ``Allow`` is ALLOW; ``Deny`` and ``NoDecision`` are
+denies. A malformed policy set (or a schema that does not validate) is caught at construction
+and raised as :class:`~apparitor.errors.AuthZENConfigError` — cedarpy treats a policy parse
+error as ``NoDecision`` rather than an exception, so without this check a single policy typo
+would silently deny *every* request at runtime instead of failing loudly at startup. At
+request time a Python-level fault (a malformed entity UID, or a Rust panic surfaced as a
+Python exception) is raised as :class:`MalformedPDPResponseError` and resolved through
+``on_error`` — never a coerced allow. This mirrors the strict ``StrictBool`` invariant the
+AuthZEN/OPA backends use.
 """
 
 from __future__ import annotations
@@ -80,6 +85,24 @@ class CedarBackend:
             )
         except (OSError, ValueError) as exc:
             raise AuthZENConfigError(f"cannot load Cedar policies/entities: {exc}") from exc
+        self._validate_policies()
+
+    def _validate_policies(self) -> None:
+        # Fail fast at construction. A policy typo parses fine as text and then makes Cedar
+        # return NoDecision (a silent deny of *everything*), not raise — so without this a
+        # misconfigured customer would see a hard deny at runtime, bypassing on_error, with the
+        # parse error only on stderr. format_policies parses without needing a schema; with a
+        # schema, validate the policies against it too.
+        try:
+            if self._schema is not None:
+                result = cedarpy.validate_policies(self._policies, self._schema)
+            else:
+                cedarpy.format_policies(self._policies)  # parse-only; raises on a syntax error
+                return
+        except (ValueError, RuntimeError) as exc:
+            raise AuthZENConfigError(f"invalid Cedar policy set: {exc}") from exc
+        if not result.validation_passed:
+            raise AuthZENConfigError(f"Cedar policy/schema validation failed: {result.errors}")
 
     async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
         # cedarpy is synchronous; run it off the event loop so a slow eval can't block it.
@@ -112,7 +135,7 @@ class CedarBackend:
             # MalformedPDPResponseError, not an escaping AttributeError. bool(): cedarpy is
             # untyped in the type-check env (Any), so coerce to a concrete bool.
             return bool(result.decision == cedarpy.Decision.Allow)
-        except Exception as exc:  # malformed uid/result, schema error, or a surfaced Rust panic
+        except Exception as exc:  # malformed uid/result or a surfaced Rust panic
             raise MalformedPDPResponseError(f"Cedar evaluation failed: {exc}") from exc
 
     def _decide_batch(self, request: BatchEvaluationRequest) -> list[bool]:
