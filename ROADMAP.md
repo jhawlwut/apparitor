@@ -63,11 +63,12 @@ security findings.
 This is where apparitor broadens from "an AuthZEN scanner for LlamaFirewall" into an
 aggregator across the popular agentic firewalls and policy engines.
 
-### 📋 More agentic firewalls
+### More agentic firewalls
 
-- **NeMo Guardrails** (NVIDIA) rail — bind the same `AuthorizationEngine` behind a NeMo
-  action/rail so a NeMo-guarded agent gets the identical authorization check. The engine is
-  already firewall-free, so this is an adapter, not a re-implementation.
+- ✅ **NeMo Guardrails** (NVIDIA) rail — binds the same `AuthorizationEngine` behind a NeMo
+  custom action so a NeMo-guarded agent gets the identical authorization check; the verdict
+  maps onto NeMo's allow / block(refuse) model via `output_mapping` (fail-closed). Adapter,
+  not a re-implementation (`apparitor.nemo`, optional `[nemo]` extra).
 - Keep the firewall-specific surface thin: only the firewall adapter module may import a
   firewall SDK; the core stays standalone.
 

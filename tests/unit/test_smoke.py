@@ -1,7 +1,8 @@
 """Smoke tests: package imports, LlamaFirewall-free standalone use, and the
-LlamaFirewall / cedarpy import guards. Behavioural coverage lives in the dedicated test modules
-(``test_engine``, ``test_client``, ``test_mapping``, ``test_decision``, ``test_cache``,
-``test_security``, ``test_scanner``)."""
+LlamaFirewall / cedarpy / nemoguardrails import guards. Behavioural coverage lives in the
+dedicated test modules (``test_engine``, ``test_client``, ``test_mapping``, ``test_decision``,
+``test_cache``, ``test_security``, ``test_scanner``, ``test_cedar_backend``,
+``test_nemo_backend``)."""
 
 from __future__ import annotations
 
@@ -55,6 +56,21 @@ def test_cedar_backend_without_cedarpy_raises_missing_dependency() -> None:
         from apparitor.cedar import CedarBackend
 
         assert CedarBackend.__name__ == "CedarBackend"
+
+
+def test_nemo_adapter_without_nemoguardrails_raises_missing_dependency() -> None:
+    from apparitor.errors import MissingDependencyError
+
+    try:
+        import nemoguardrails  # noqa: F401
+    except ImportError:
+        with pytest.raises(MissingDependencyError):
+            importlib.import_module("apparitor.nemo")
+    else:
+        # nemoguardrails is installed; the module imports and exposes the rail adapter.
+        from apparitor.nemo import NeMoAuthorizationRails
+
+        assert NeMoAuthorizationRails.__name__ == "NeMoAuthorizationRails"
 
 
 def test_single_evaluation_request_roundtrips_spec_json() -> None:

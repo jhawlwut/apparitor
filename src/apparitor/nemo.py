@@ -1,0 +1,218 @@
+"""NeMo Guardrails rail adapter (thin adapter over :class:`AuthorizationEngine`).
+
+This is the **only** module that imports NeMo Guardrails. The import is guarded so that
+importing it without ``nemoguardrails`` installed yields a clear
+:class:`~apparitor.errors.MissingDependencyError` rather than an opaque ``ImportError``.
+
+It binds the firewall-free :class:`AuthorizationEngine` behind a NeMo **custom action** so a
+NeMo-guarded agent gets the *identical* authorization check the LlamaFirewall scanner
+provides — same engine, same mapper, same fail-closed semantics, same request-scoped subject
+resolution (``current_subject`` / ``current_request_context`` / ``config.agent_id``). Only the
+boundary differs: the verdict is mapped onto NeMo's allow / block(refuse) model.
+
+The action returns a plain ``allowed`` boolean — the contract NeMo's ``output_mapping``
+expects (``True`` = allowed) and one that fails *closed* even under NeMo's default mapping
+(a non-true return blocks). The richer verdict (verdict / reason / status / score) is surfaced
+through ``ActionResult.context_updates`` so a host can build a refusal message or an escalation
+flow on top of it. The verdict → allow mapping is fail-closed: only ``ALLOW`` / ``SKIP`` with a
+non-error status is allowed; ``BLOCK``, ``HUMAN_REVIEW`` (refused; escalation is a host concern
+surfaced via context), and any ``status=ERROR`` block.
+
+Register the action on an ``LLMRails`` (before generating), then reference the flow as a rail.
+NeMo has no built-in "tool calls" context key, so the host passes the agent's proposed tool
+calls into the action explicitly as ``$tool_calls`` (or sets them in the rails context under
+``tool_calls``); how you obtain them depends on your agent integration. Wiring::
+
+    from nemoguardrails import LLMRails, RailsConfig
+
+    rails = LLMRails(RailsConfig.from_path("config"))
+    NeMoAuthorizationRails(pdp_url="https://pdp.internal").register(rails)
+
+``config/config.yml`` activates the flow as a rail::
+
+    rails:
+      input:
+        flows:
+          - authorize tool calls
+
+``config/rails.co`` refuses a denied tool call (the canonical ``self check input`` shape)::
+
+    define bot refuse to authorize tool call
+      "I can't authorize that action."
+
+    define flow authorize tool calls
+      $allowed = execute authorize_tool_calls(tool_calls=$tool_calls)
+      if not $allowed
+        bot refuse to authorize tool call
+        stop
+
+A ``HUMAN_REVIEW`` verdict refuses too (NeMo has no native human-in-the-loop pause); the
+verdict is surfaced in the rails context, so a host builds escalation by branching on it, e.g.
+``when $tool_authorization_verdict == "human_review"``.
+
+The host sets the trusted subject/context out-of-band before invoking the rails — never from
+model or tool output (a confused-deputy hazard) — exactly as with the scanner::
+
+    with subject_scope(Subject(type="user", id="alice@acme.com")):
+        await rails.generate_async(messages=...)
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, cast
+
+from .config import ScannerConfig
+from .decision import Verdict, VerdictResult, VerdictStatus
+from .engine import AuthorizationEngine, ReviewPredicate
+from .errors import MissingDependencyError
+from .mapping import current_request_context
+
+try:  # pragma: no cover - exercised via import-guard tests
+    from nemoguardrails.actions import action
+    from nemoguardrails.actions.actions import ActionResult
+except ImportError as exc:  # pragma: no cover
+    raise MissingDependencyError(
+        "apparitor.nemo requires NeMo Guardrails. Install it with:\n"
+        "    pip install 'apparitor[nemo]'"
+    ) from exc
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Mapping
+
+    import httpx
+    from nemoguardrails import LLMRails
+
+    from .mapping import ToolCallMapper
+    from .metrics import MetricsSink
+
+#: Verdicts that authorize the tool call; everything else (and any ``status=ERROR``) blocks.
+_ALLOW_VERDICTS = frozenset({Verdict.ALLOW, Verdict.SKIP})
+
+
+def _is_allowed(verdict: VerdictResult) -> bool:
+    return verdict.status is not VerdictStatus.ERROR and verdict.verdict in _ALLOW_VERDICTS
+
+
+def authorization_blocks(allowed: object) -> bool:
+    """NeMo ``output_mapping``: return ``True`` when the tool call must be blocked/refused.
+
+    Fail closed: anything that is not an explicit ``True`` — a denied / human-review / error
+    verdict, or an unexpected shape — blocks. Registered on the action so a denied verdict
+    refuses regardless of NeMo's default mapping.
+    """
+    return allowed is not True
+
+
+def _context_updates(verdict: VerdictResult) -> dict[str, Any]:
+    """Plain-typed verdict detail for NeMo's context (refusal messages / escalation flows).
+
+    The ``allowed`` bool itself is the action's ``return_value`` (already bound by the flow),
+    so it is not duplicated here.
+    """
+    return {
+        "tool_authorization_verdict": verdict.verdict.value,
+        "tool_authorization_status": verdict.status.value,
+        "tool_authorization_reason": verdict.reason,
+        "tool_authorization_score": verdict.score,
+    }
+
+
+def _tool_calls_from_context(context: Mapping[str, Any] | None) -> list[dict[str, Any]] | None:
+    """Fall back to ``context["tool_calls"]`` when the flow does not pass them explicitly."""
+    if not context:
+        return None
+    calls = context.get("tool_calls")
+    return calls if calls else None
+
+
+class NeMoAuthorizationRails:
+    """Authorizes an agent's tool calls against an AuthZEN PDP from inside NeMo Guardrails.
+
+    Construct it like the scanner — a ``pdp_url`` or a full :class:`ScannerConfig` — then
+    :meth:`register` the custom action onto an ``LLMRails`` and reference it from a rail flow
+    (see the module docstring). A subject must be resolvable (via ``current_subject`` /
+    ``current_request_context`` or ``config.agent_id``) or the authorization fails closed.
+    """
+
+    def __init__(
+        self,
+        pdp_url: str | None = None,
+        *,
+        config: ScannerConfig | None = None,
+        mapper: ToolCallMapper | None = None,
+        http_client: httpx.AsyncClient | None = None,
+        review_predicate: ReviewPredicate | None = None,
+        metrics: MetricsSink | None = None,
+        action_name: str = "authorize_tool_calls",
+    ) -> None:
+        if config is None:
+            if pdp_url is None:
+                raise ValueError("provide either pdp_url or config")
+            config = ScannerConfig(pdp_url=pdp_url)
+        self._config = config
+        self.action_name = action_name
+        from .backends import build_backend
+
+        backend = build_backend(config, http_client=http_client)
+        self._engine = AuthorizationEngine(
+            config,
+            client=backend,
+            mapper=mapper,
+            review_predicate=review_predicate,
+            metrics=metrics,
+        )
+        self._action = self._build_action()
+
+    @property
+    def metrics(self) -> MetricsSink:
+        """The engine's metrics sink (latency histogram + cache-hit counter)."""
+        return self._engine.metrics
+
+    @property
+    def action(self) -> Callable[..., Awaitable[ActionResult]]:
+        """The registered NeMo action coroutine (carries its ``output_mapping``)."""
+        return self._action
+
+    def register(self, rails: LLMRails) -> LLMRails:
+        """Register the authorization action on ``rails`` and return it (chainable)."""
+        rails.register_action(self._action, name=self.action_name)
+        return rails
+
+    def _build_action(self) -> Callable[..., Awaitable[ActionResult]]:
+        engine = self._engine
+
+        async def authorize_tool_calls(
+            tool_calls: list[dict[str, Any]] | None = None,
+            context: Mapping[str, Any] | None = None,
+        ) -> ActionResult:
+            verdict = await engine.evaluate_tool_calls(
+                tool_calls if tool_calls is not None else _tool_calls_from_context(context),
+                request_context=current_request_context.get(),
+            )
+            return ActionResult(
+                return_value=_is_allowed(verdict), context_updates=_context_updates(verdict)
+            )
+
+        # NeMo ships no type stubs, so @action is untyped; apply it as a call (not decorator
+        # syntax) and re-assert the type we authored, keeping the function statically typed.
+        decorated = action(name=self.action_name, output_mapping=authorization_blocks)(
+            authorize_tool_calls
+        )
+        return cast("Callable[..., Awaitable[ActionResult]]", decorated)
+
+    async def aclose(self) -> None:
+        """Release the underlying PDP client (call on teardown).
+
+        Only closes a client this adapter created; a bring-your-own ``http_client`` is left for
+        the caller to manage.
+        """
+        await self._engine.aclose()
+
+    async def __aenter__(self) -> NeMoAuthorizationRails:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.aclose()
+
+
+__all__ = ["NeMoAuthorizationRails", "authorization_blocks"]

@@ -141,6 +141,21 @@ jobs:
       - name: Pytest (Cedar in-process backend, with cedarpy)
         run: pytest tests/unit/test_cedar_backend.py -p no:cacheprovider --no-cov
 
+  # The NeMo Guardrails rail adapter's only hard dependency is nemoguardrails, so its
+  # end-to-end test runs in a dedicated job that installs the [nemo] extra — keeping it out of
+  # the default [dev] run, like the scanner and cedar jobs.
+  nemo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev,nemo]"
+      - name: Pytest (NeMo Guardrails rail adapter, with nemoguardrails)
+        run: pytest tests/unit/test_nemo_backend.py -p no:cacheprovider --no-cov
+
   # Integration tests need real PDPs via Docker. Kept off the default path; auto-skips
   # via conftest when no daemon is present, so it never blocks the merge gate.
   integration:
