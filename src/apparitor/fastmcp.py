@@ -15,8 +15,10 @@ Subject resolution (first match wins; no match refuses the call):
 
 1. The verified access token's ``sub`` claim → ``Subject(type="user", id=<sub>)``
    (``subject_claim`` / ``subject_type`` are constructor knobs). A token *without* a
-   usable claim refuses — a workload (client-credentials) token is never silently
-   downgraded to a fallback subject.
+   usable claim refuses — unless ``allow_workload_subject=True``, which maps such a
+   client-credentials token to the distinct ``Subject(type="workload", id=<client_id>)``
+   so machine policies are written on their own terms; a workload identity is **never**
+   coerced into a user subject or silently downgraded to a fallback.
 2. A host-injected trusted subject: ``current_request_context["subject"]`` or
    :func:`~apparitor.mapping.subject_scope` — out-of-band, as with the other adapters.
 3. ``config.agent_id``, **only** when ``allow_static_subject=True``. Off by default: on a
@@ -40,10 +42,25 @@ submitted, so abstention would otherwise silently execute) and any error refuse 
 log and metrics. Note the decision log records the subject id — with token-derived
 subjects that is the OAuth ``sub``; route the ``apparitor`` logger accordingly.
 
-Enforcement scope (deployment requirements): register the middleware on every server whose
-tools must be gated (a mounted sub-server is covered only when calls flow through the
-parent), order it after any custom auth middleware so the token is populated, and note
-that v1 gates ``tools/call`` only — resource reads and prompts are not yet authorized.
+Enforcement scope: ``tools/call``, ``resources/read`` (action ``resource.read``, resource
+``{type: "mcp_resource", id: <uri>}`` — URIs are kept verbatim, with the server label in
+``properties``), and ``prompts/get`` (action ``prompt.get``, resource
+``{type: "mcp_prompt", id: "<server>/<prompt>"}``) are all gated by default, each behind
+the same subject chain and fail-closed verdict mapping; ``gate_resources`` /
+``gate_prompts`` opt a hook out where only tool gating is wanted. Resource *templates*
+reach the gate with the concrete expanded URI, so policies over templates need
+wildcard/prefix matching. ``tools/list`` shaping is opt-in (``filter_listings=True``):
+advisory UX that hides tools whose ``tools/call`` the subject would be denied (one batch
+PDP round trip per listing — MCP clients re-list often, so budget the PDP accordingly —
+and anything not a clean ALLOW, or any fault, hides). Visibility caveats: PDP policy
+changes alter what a re-list returns but emit no ``list_changed`` notification, and only
+``tools/list`` is filtered — ``resources/list``, ``resources/templates/list`` and
+``prompts/list`` still advertise names/URIs to every caller even though reads/gets are
+gated. The ``mapper`` parameter governs tool calls and listing filtering; resource/prompt
+tuples are shaped by the adapter itself (they are not tool calls), so a custom mapper does
+not affect them. Deployment requirements: register the middleware on every server whose
+components must be gated (a mounted sub-server is covered only when calls flow through
+the parent) and order it after any custom auth middleware so the token is populated.
 FastMCP never tears middleware down, so closing is the host's job (``aclose()``).
 
 Wiring::
@@ -70,11 +87,13 @@ from .mapping import (
     MCPResourceMapper,
     current_request_context,
     current_subject,
+    mcp_resource_id,
+    request_context_attrs,
 )
-from .models import Subject
+from .models import Action, EvaluationRequest, Resource, Subject
 
 try:  # pragma: no cover - exercised via import-guard tests
-    from fastmcp.exceptions import ToolError
+    from fastmcp.exceptions import PromptError, ResourceError, ToolError
     from fastmcp.server.dependencies import get_access_token
     from fastmcp.server.middleware import Middleware
 except ImportError as exc:  # pragma: no cover
@@ -83,6 +102,8 @@ except ImportError as exc:  # pragma: no cover
     ) from exc
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import httpx
     import mcp.types as mt
     from fastmcp.server.middleware import CallNext, MiddlewareContext
@@ -93,10 +114,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("apparitor")
 
-# Refusal text crosses the trust boundary to the client/model, so it is fixed and generic —
-# never the engine's reason, which may embed PDP/config detail (requirements §3.10).
-_DENY_MESSAGE = "tool call not authorized"
-_REVIEW_MESSAGE = "tool call requires human approval; do not retry"
+
+def _refusal(noun: str, verdict: VerdictResult | None) -> str:
+    """Generic, per-surface refusal text; HUMAN_REVIEW stays distinguishable for hosts.
+
+    This text crosses the trust boundary to the client/model, so it is fixed and generic —
+    never the engine's reason, which may embed PDP/config detail (requirements §3.10).
+    """
+    if verdict is not None and verdict.verdict is Verdict.HUMAN_REVIEW:
+        return f"{noun} requires human approval; do not retry"
+    return f"{noun} not authorized"
 
 
 def _is_allowed(verdict: VerdictResult) -> bool:
@@ -123,6 +150,10 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
         subject_type: str = "user",
         subject_claim: str = "sub",
         allow_static_subject: bool = False,
+        allow_workload_subject: bool = False,
+        filter_listings: bool = False,
+        gate_resources: bool = True,
+        gate_prompts: bool = True,
         mapper: ToolCallMapper | None = None,
         http_client: httpx.AsyncClient | None = None,
         review_predicate: ReviewPredicate | None = None,
@@ -133,11 +164,21 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
             if pdp_url is None:
                 raise ValueError("provide either pdp_url or config")
             config = ScannerConfig(pdp_url=pdp_url)
+        # "workload" is reserved for verified client-credentials tokens: minting
+        # claim-derived or static subjects in that namespace would alias machine policies.
+        if subject_type == "workload" or (
+            allow_static_subject and config.subject_type == "workload"
+        ):
+            raise ValueError('subject type "workload" is reserved for allow_workload_subject')
         self._config = config
         self._server_label = server_label
         self._subject_type = subject_type
         self._subject_claim = subject_claim
         self._allow_static_subject = allow_static_subject
+        self._allow_workload_subject = allow_workload_subject
+        self._filter_listings = filter_listings
+        self._gate_resources = gate_resources
+        self._gate_prompts = gate_prompts
         from .backends import build_backend
 
         backend = build_backend(config, http_client=http_client)
@@ -147,6 +188,13 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
             mapper=mapper or MCPResourceMapper(config),
             review_predicate=review_predicate,
             metrics=metrics,
+        )
+        # One line an operator can find when diagnosing "why is X denied after upgrade".
+        logger.info(
+            "apparitor: FastMCP middleware gating tools/call%s%s%s",
+            ", resources/read" if gate_resources else "",
+            ", prompts/get" if gate_prompts else "",
+            "; filtering tools/list" if filter_listings else "",
         )
 
     @property
@@ -167,17 +215,77 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
             # generic message is deliberate — exception text must not reach the client.
             logger.exception("apparitor: FastMCP authorization middleware error (refusing)")
             self._record_refusal()
-            raise ToolError(_DENY_MESSAGE) from None
+            raise ToolError(_refusal("tool call", None)) from None
         if verdict is not None and _is_allowed(verdict):
             return await call_next(context)
         if verdict is None:
             # No resolvable subject: the engine never ran, so this refusal is invisible to
             # its metrics unless we count it here (else an all-misconfigured fleet logs zero).
             self._record_refusal()
-            raise ToolError(_DENY_MESSAGE)
-        if verdict.verdict is Verdict.HUMAN_REVIEW:
-            raise ToolError(_REVIEW_MESSAGE)
-        raise ToolError(_DENY_MESSAGE)
+        raise ToolError(_refusal("tool call", verdict))
+
+    async def on_list_tools(
+        self,
+        context: MiddlewareContext[mt.ListToolsRequest],
+        call_next: CallNext[mt.ListToolsRequest, Any],
+    ) -> Any:
+        """Hide tools the subject may not call (opt-in via ``filter_listings``).
+
+        Advisory shaping, not the enforcement invariant — ``on_call_tool`` still gates
+        every execution. Fail-closed: no resolvable subject, a non-ALLOW verdict, or any
+        fault hides (an error must conceal, never reveal).
+        """
+        tools = await call_next(context)
+        if not self._filter_listings:
+            return tools
+        try:
+            names = [_listed_name(tool) for tool in tools]
+            visible = await self._visible_tools(context, names)
+            return [tool for tool, name in zip(tools, names, strict=True) if name in visible]
+        except Exception:
+            logger.exception("apparitor: listing filter error (hiding all tools)")
+            self._record_refusal()
+            return []
+
+    async def on_read_resource(
+        self,
+        context: MiddlewareContext[mt.ReadResourceRequestParams],
+        call_next: CallNext[mt.ReadResourceRequestParams, Any],
+    ) -> Any:
+        """Authorize the resource read (action ``resource.read``); only ALLOW reads."""
+        if not self._gate_resources:
+            return await call_next(context)
+        try:
+            verdict = await self._authorize_shaped(context, self._resource_request)
+        except Exception:
+            logger.exception("apparitor: FastMCP authorization middleware error (refusing)")
+            self._record_refusal()
+            raise ResourceError(_refusal("resource read", None)) from None
+        if verdict is not None and _is_allowed(verdict):
+            return await call_next(context)
+        if verdict is None:
+            self._record_refusal()
+        raise ResourceError(_refusal("resource read", verdict))
+
+    async def on_get_prompt(
+        self,
+        context: MiddlewareContext[mt.GetPromptRequestParams],
+        call_next: CallNext[mt.GetPromptRequestParams, Any],
+    ) -> Any:
+        """Authorize the prompt fetch (action ``prompt.get``); only ALLOW fetches."""
+        if not self._gate_prompts:
+            return await call_next(context)
+        try:
+            verdict = await self._authorize_shaped(context, self._prompt_request)
+        except Exception:
+            logger.exception("apparitor: FastMCP authorization middleware error (refusing)")
+            self._record_refusal()
+            raise PromptError(_refusal("prompt", None)) from None
+        if verdict is not None and _is_allowed(verdict):
+            return await call_next(context)
+        if verdict is None:
+            self._record_refusal()
+        raise PromptError(_refusal("prompt", verdict))
 
     def _record_refusal(self) -> None:
         """Count a pre-engine refusal (no subject / adapter fault) as a BLOCK+ERROR decision.
@@ -193,6 +301,44 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
         self, context: MiddlewareContext[mt.CallToolRequestParams]
     ) -> VerdictResult | None:
         """Evaluate the call; ``None`` means no resolvable subject (refuse, no PDP trip)."""
+        ctx = self._request_context(context)
+        if ctx is None:
+            return None
+        call = NormalizedToolCall(
+            name=context.message.name, arguments=dict(context.message.arguments or {})
+        )
+        return await self._engine.evaluate_normalized([call], request_context=ctx)
+
+    async def _authorize_shaped(
+        self,
+        context: MiddlewareContext[Any],
+        shape: Callable[[MiddlewareContext[Any], dict[str, Any]], EvaluationRequest | None],
+    ) -> VerdictResult | None:
+        """Evaluate an adapter-shaped request; ``None`` refuses without a PDP trip
+        (no resolvable subject, or ``shape`` could not build a sound policy key)."""
+        ctx = self._request_context(context)
+        if ctx is None:
+            return None
+        request = shape(context, ctx)
+        if request is None:
+            return None
+        return await self._engine.evaluate_requests([request])
+
+    async def _visible_tools(self, context: MiddlewareContext[Any], names: list[str]) -> set[str]:
+        """The subset of ``names`` whose ``tools/call`` the subject would be allowed."""
+        if not names:
+            return set()
+        ctx = self._request_context(context)
+        if ctx is None:
+            self._record_refusal()
+            return set()
+        verdicts = await self._engine.evaluate_each(
+            [NormalizedToolCall(name=name) for name in names], request_context=ctx
+        )
+        return {name for name, verdict in zip(names, verdicts, strict=True) if _is_allowed(verdict)}
+
+    def _request_context(self, context: MiddlewareContext[Any]) -> dict[str, Any] | None:
+        """Host context + resolved subject + server label; ``None`` when no subject."""
         ctx: dict[str, Any] = dict(current_request_context.get() or {})
         subject = self._resolve_subject(ctx)
         if subject is None:
@@ -206,10 +352,46 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
             name = _server_name(context)
             if name is not None:
                 ctx[MCP_SERVER_LABEL_KEY] = name
-        call = NormalizedToolCall(
-            name=context.message.name, arguments=dict(context.message.arguments or {})
+        return ctx
+
+    def _resource_request(
+        self, context: MiddlewareContext[mt.ReadResourceRequestParams], ctx: dict[str, Any]
+    ) -> EvaluationRequest:
+        # The URI is the globally meaningful policy key and is kept verbatim (URIs are
+        # case-sensitive, unlike tool names); the server label rides along as a property.
+        label = ctx.get(MCP_SERVER_LABEL_KEY)
+        return EvaluationRequest(
+            subject=ctx["subject"],
+            action=Action(name="resource.read"),
+            resource=Resource(
+                type="mcp_resource",
+                id=str(context.message.uri),
+                properties={"server": label} if isinstance(label, str) else {},
+            ),
+            context=request_context_attrs(ctx),
         )
-        return await self._engine.evaluate_normalized([call], request_context=ctx)
+
+    def _prompt_request(
+        self, context: MiddlewareContext[mt.GetPromptRequestParams], ctx: dict[str, Any]
+    ) -> EvaluationRequest | None:
+        # The prompt name is kept verbatim, like resource URIs: FastMCP registers
+        # case-variant prompts as DISTINCT components, so folding them onto one policy key
+        # would let a single ALLOW cover both. Prompt arguments are not forwarded in v1.
+        # An embedded "/" in the name fails closed inside mcp_resource_id (ambiguous key),
+        # surfacing as a refusal.
+        label = ctx.get(MCP_SERVER_LABEL_KEY)
+        if not isinstance(label, str):
+            logger.warning("apparitor: no server label for prompt authorization; refusing")
+            return None
+        return EvaluationRequest(
+            subject=ctx["subject"],
+            action=Action(name="prompt.get"),
+            resource=Resource(
+                type="mcp_prompt",
+                id=mcp_resource_id(label, context.message.name),
+            ),
+            context=request_context_attrs(ctx),
+        )
 
     def _resolve_subject(self, request_context: dict[str, Any]) -> Subject | None:
         token = get_access_token()
@@ -221,11 +403,23 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
                     id=sub,
                     properties={"client_id": token.client_id, "scopes": list(token.scopes)},
                 )
-            # A verified token without a usable subject claim (e.g. a client-credentials
-            # workload token) refuses rather than silently downgrading to a fallback.
+            client_id = token.client_id
+            if self._allow_workload_subject and isinstance(client_id, str) and client_id.strip():
+                # A verified client-credentials token: a machine principal with its own
+                # subject type, so user-keyed policies can never match it. client_id is
+                # repeated as a property for symmetry with user subjects (one policy
+                # attribute works across both).
+                return Subject(
+                    type="workload",
+                    id=client_id,
+                    properties={"client_id": client_id, "scopes": list(token.scopes)},
+                )
+            # A verified token without a usable subject claim refuses rather than silently
+            # downgrading to a fallback (opt in to workload identities explicitly).
             logger.warning(
-                "apparitor: access token has no usable %r claim; refusing (workload"
-                " identities are not yet supported)",
+                "apparitor: access token has no usable %r claim; refusing (set"
+                " allow_workload_subject=True to authorize client-credentials tokens"
+                " as workload subjects)",
                 self._subject_claim,
             )
             return None
@@ -238,7 +432,7 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
         if self._allow_static_subject and self._config.agent_id is not None:
             return Subject(type=self._config.subject_type, id=self._config.agent_id)
         logger.warning(
-            "apparitor: no authenticated subject for MCP tool call; refusing (configure"
+            "apparitor: no authenticated subject for MCP request; refusing (configure"
             " server auth, or opt in to allow_static_subject for local/stdio use)"
         )
         return None
@@ -256,6 +450,21 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
 
     async def __aexit__(self, *exc: object) -> None:
         await self.aclose()
+
+
+def _listed_name(tool: Any) -> str:
+    """The client-visible (mount-prefixed) tool name, as ``on_call_tool`` will receive it.
+
+    The two supported FastMCP lines disagree under composition: 2.14 keeps ``Tool.name``
+    unprefixed and puts the prefixed name in ``Tool.key``, while 3.x prefixes ``Tool.name``
+    (its ``key`` is a ``tool:...@`` component locator). Using the wrong one would make the
+    listing filter and the call gate evaluate different policy keys.
+    """
+    key = getattr(tool, "key", None)
+    if isinstance(key, str) and key and ":" not in key:
+        return key
+    name: str = tool.name
+    return name
 
 
 def _server_name(context: MiddlewareContext[Any]) -> str | None:

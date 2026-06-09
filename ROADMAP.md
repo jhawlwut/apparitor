@@ -72,11 +72,12 @@ aggregator across the popular agentic firewalls and policy engines.
 - ✅ **FastMCP server middleware** — the first MCP-boundary PEP: every `tools/call` is
   authorized server-side before the tool executes, with the subject taken from the
   **validated** OAuth token (`sub`) rather than a host assertion (`apparitor.fastmcp`,
-  optional `[fastmcp]` extra). Deferred follow-ups, in priority order: 📋 list filtering
-  ([#32](https://github.com/jhawlwut/apparitor/issues/32)), 📋 workload
-  (client-credentials) identities as a distinct subject type
-  ([#33](https://github.com/jhawlwut/apparitor/issues/33)), 📋 gating resource reads and
-  prompts alongside tool calls ([#34](https://github.com/jhawlwut/apparitor/issues/34)).
+  optional `[fastmcp]` extra). Follow-ups, all shipped: ✅ list filtering via
+  `filter_listings` ([#32](https://github.com/jhawlwut/apparitor/issues/32)), ✅ workload
+  (client-credentials) identities as a distinct `workload` subject type via
+  `allow_workload_subject` ([#33](https://github.com/jhawlwut/apparitor/issues/33)), ✅
+  resource reads and prompts gated by default (actions `resource.read` / `prompt.get`,
+  per-hook opt-outs) ([#34](https://github.com/jhawlwut/apparitor/issues/34)).
 - 🔜 **A2A adapter** — the same `subject/action/resource` question for agent-to-agent
   calls (`action = invoke`, `resource = <target agent/skill>`); first non-firewall,
   non-MCP surface.
