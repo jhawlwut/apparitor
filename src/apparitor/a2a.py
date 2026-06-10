@@ -18,11 +18,18 @@ Subject resolution (first match wins; no match refuses the invocation):
 1. The authenticated caller from ``RequestContext.call_context.user`` →
    ``Subject(type="agent", id=<user_name>)`` — the A2A peer is typically itself an agent;
    ``subject_type`` is a constructor knob for deployments that authenticate end users.
-2. A host-injected trusted subject: ``current_request_context["subject"]`` or
-   :func:`~apparitor.mapping.subject_scope` — out-of-band, as with the other adapters.
+2. A trusted subject placed in ``ServerCallContext.state["subject"]`` by the
+   deployment's ``ServerCallContextBuilder`` — per-request and threaded through the SDK.
+   The ambient contextvar seam the other adapters offer is deliberately **not** consulted
+   here: the executor runs inside the SDK's detached, long-lived producer task, where
+   contextvars are snapshotted at task creation and go stale across turns — a
+   cross-request identity leak waiting to happen.
 3. ``config.agent_id``, **only** when ``allow_static_subject=True``. Off by default: an
    unauthenticated network caller must never be silently authorized as a static subject
    (a confused deputy). Opt in only where the transport itself is trusted.
+
+Host enrichment attributes (``conversation_id`` / ``user_id`` / ``correlation_id``) are
+likewise read from ``ServerCallContext.state``, never from ambient context.
 
 The AuthZEN tuple: action ``agent.invoke``; resource ``{type: "a2a_agent",
 id: <agent_label>}``, or — when ``skill_resolver`` resolves a skill for the request —
@@ -37,8 +44,13 @@ Verdict mapping is fail-closed: only a clean ``ALLOW`` reaches the wrapped execu
 ``BLOCK``, ``HUMAN_REVIEW``, abstention and any error refuse by raising an A2A
 ``InvalidRequestError`` whose text the client receives **verbatim** — so refusals are
 deliberately generic and the rich verdict/reason stays in the operator decision log and
-metrics. ``cancel`` is passed through ungated in v1 (task control on an already-authorized
-task; gating it is tracked work, not an accident).
+metrics. (``InvalidRequestError`` maps to JSON-RPC -32600 — semantically "invalid
+request" rather than "forbidden"; it is the stateless choice. The protocol-native
+alternative, a ``TASK_STATE_REJECTED`` task event, persists a task per denied request —
+unauthenticated write amplification on the task store — so it is deferred as a possible
+opt-in.) ``cancel`` is passed through: the SDK cancels the producer task *before*
+``executor.cancel`` runs, so gating at this seam could not actually prevent
+cancellation — authorize cancels in HTTP/authn middleware if needed.
 
 Wiring::
 
@@ -63,7 +75,7 @@ from .config import ScannerConfig
 from .decision import Verdict, VerdictResult, VerdictStatus
 from .engine import AuthorizationEngine, ReviewPredicate
 from .errors import MissingDependencyError
-from .mapping import current_request_context, current_subject, request_context_attrs
+from .mapping import request_context_attrs
 from .models import Action, EvaluationRequest, Resource, Subject
 
 try:  # pragma: no cover - exercised via import-guard tests
@@ -182,8 +194,10 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
     async def _authorize(self, context: RequestContext) -> VerdictResult | None:
         """Evaluate the invocation; ``None`` refuses without a PDP trip (no subject or
         no sound policy key)."""
-        host_ctx: dict[str, Any] = dict(current_request_context.get() or {})
-        subject = self._resolve_subject(context, host_ctx)
+        # Per-request data only: ServerCallContext.state is threaded through the SDK for
+        # this request; ambient contextvars would be stale here (see module docstring).
+        state: dict[str, Any] = dict(context.call_context.state) if context.call_context else {}
+        subject = self._resolve_subject(context, state)
         if subject is None:
             return None
         resource = self._resource(context)
@@ -193,11 +207,11 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
             subject=subject,
             action=Action(name="agent.invoke"),
             resource=resource,
-            context=self._context_attrs(context, host_ctx),
+            context=self._context_attrs(context, state),
         )
         return await self._engine.evaluate_requests([request])
 
-    def _resolve_subject(self, context: RequestContext, host_ctx: dict[str, Any]) -> Subject | None:
+    def _resolve_subject(self, context: RequestContext, state: dict[str, Any]) -> Subject | None:
         user = context.call_context.user if context.call_context else None
         if user is not None and user.is_authenticated:
             name = user.user_name
@@ -207,17 +221,15 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
             # than guess; never fall through to a weaker subject.
             logger.warning("apparitor: authenticated A2A user has no user_name; refusing")
             return None
-        injected = host_ctx.get("subject")
+        injected = state.get("subject")
         if isinstance(injected, Subject):
             return injected
-        ambient = current_subject.get()
-        if ambient is not None:
-            return ambient
         if self._allow_static_subject and self._config.agent_id is not None:
             return Subject(type=self._config.subject_type, id=self._config.agent_id)
         logger.warning(
             "apparitor: no authenticated subject for A2A invocation; refusing (configure"
-            " server authentication, or opt in to allow_static_subject)"
+            " server authentication, inject one via ServerCallContext.state['subject'],"
+            " or opt in to allow_static_subject)"
         )
         return None
 
@@ -235,9 +247,9 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
         return Resource(type="a2a_skill", id=f"{self._agent_label}/{skill}")
 
     def _context_attrs(
-        self, context: RequestContext, host_ctx: dict[str, Any]
+        self, context: RequestContext, state: dict[str, Any]
     ) -> dict[str, Any] | None:
-        attrs = request_context_attrs(host_ctx) or {}
+        attrs = request_context_attrs(state) or {}
         tenant = context.call_context.tenant if context.call_context else ""
         if tenant:
             attrs["tenant"] = tenant

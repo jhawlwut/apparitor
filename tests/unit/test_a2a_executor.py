@@ -71,19 +71,18 @@ class _Peer(User):
 
 
 class _ContextBuilder(DefaultServerCallContextBuilder):
-    """Injects a fixed user/tenant — the seam real authn middleware populates — while
-    keeping the default builder's header/version handling intact."""
+    """Injects a fixed user and/or state — the seam real authn middleware populates —
+    while keeping the default builder's header/version handling intact."""
 
-    def __init__(self, user: User | None = None, tenant: str = "") -> None:
+    def __init__(self, user: User | None = None, state: dict[str, Any] | None = None) -> None:
         self._user = user
-        self._tenant = tenant
+        self._state = state or {}
 
     def build(self, request: Any) -> ServerCallContext:
         context = super().build(request)
         if self._user is not None:
             context.user = self._user
-        if self._tenant:
-            context.tenant = self._tenant
+        context.state.update(self._state)
         return context
 
 
@@ -248,27 +247,100 @@ async def test_static_subject_requires_opt_in(make_config) -> None:
 
 
 @pytest.mark.asyncio
-async def test_host_injected_subject_when_unauthenticated(make_config) -> None:
+async def test_state_injected_subject_when_unauthenticated(make_config) -> None:
+    # The per-request injection seam is ServerCallContext.state, populated by the
+    # deployment's context builder.
+    pdp = _PDP(decision=True)
+    delegate = _EchoExecutor()
+    guard = _guarded(delegate, pdp, make_config)
+    client = _a2a_client(guard, _ContextBuilder(state={"subject": _ALICE}))
+    async with guard:
+        await _send(client)
+    assert pdp.requests[0]["subject"]["id"] == "alice@acme.com"
+
+
+@pytest.mark.asyncio
+async def test_authenticated_peer_wins_over_state_subject(make_config) -> None:
+    pdp = _PDP(decision=True)
+    delegate = _EchoExecutor()
+    guard = _guarded(delegate, pdp, make_config)
+    client = _a2a_client(
+        guard, _ContextBuilder(user=_Peer("planner-agent"), state={"subject": _ALICE})
+    )
+    async with guard:
+        await _send(client)
+    assert pdp.requests[0]["subject"]["id"] == "planner-agent"
+
+
+@pytest.mark.asyncio
+async def test_ambient_contextvar_subject_is_ignored(make_config) -> None:
+    # The executor runs in the SDK's detached producer task, where ambient contextvars
+    # are snapshotted at task creation and go STALE across turns — consulting them would
+    # be a cross-request identity leak. They must be ignored entirely.
     pdp = _PDP(decision=True)
     delegate = _EchoExecutor()
     guard = _guarded(delegate, pdp, make_config)
     client = _a2a_client(guard)
     async with guard:
         with subject_scope(_ALICE):
-            await _send(client)
-    assert pdp.requests[0]["subject"]["id"] == "alice@acme.com"
+            with pytest.raises(Exception, match="not authorized"):
+                await _send(client)
+    assert delegate.executed == 0
+    assert pdp.requests == []
 
 
 @pytest.mark.asyncio
-async def test_authenticated_peer_wins_over_ambient_subject(make_config) -> None:
+async def test_caller_metadata_never_reaches_policy_context(make_config) -> None:
+    # Message metadata is caller-controlled; forwarding it into the AuthZEN context
+    # would let the caller influence policy inputs. With no tenant and no state attrs,
+    # the request must carry no context member at all.
     pdp = _PDP(decision=True)
     delegate = _EchoExecutor()
     guard = _guarded(delegate, pdp, make_config)
     client = _a2a_client(guard, _ContextBuilder(user=_Peer("planner-agent")))
+    request = _request()
+    request.message.metadata.update({"user_id": "mallory", "conversation_id": "evil"})
     async with guard:
-        with subject_scope(_ALICE):
+        async for _ in client.send_message(request):
+            pass
+    assert "context" not in pdp.requests[0]
+
+
+@pytest.mark.asyncio
+async def test_refusal_metric_counts_pre_engine_refusals(make_config) -> None:
+    pdp = _PDP(decision=True)
+    delegate = _EchoExecutor()
+    guard = _guarded(delegate, pdp, make_config)
+    client = _a2a_client(guard)
+    async with guard:
+        with pytest.raises(Exception, match="not authorized"):
             await _send(client)
-    assert pdp.requests[0]["subject"]["id"] == "planner-agent"
+    assert guard.metrics.decisions == {("block", "error"): 1}  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_streaming_denial_surfaces_generic_error(make_config) -> None:
+    pdp = _PDP(decision=False)
+    delegate = _EchoExecutor()
+    guard = _guarded(delegate, pdp, make_config)
+    card = t.AgentCard()
+    card.CopyFrom(_CARD)
+    card.capabilities.streaming = True
+    handler = DefaultRequestHandler(
+        agent_executor=guard, task_store=InMemoryTaskStore(), agent_card=card
+    )
+    routes = create_jsonrpc_routes(
+        handler, rpc_url="/a2a", context_builder=_ContextBuilder(user=_Peer("planner-agent"))
+    )
+    hc = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=Starlette(routes=routes)), base_url="http://test"
+    )
+    client = ClientFactory(ClientConfig(httpx_client=hc, streaming=True)).create(card)
+    async with guard:
+        with pytest.raises(Exception, match="not authorized"):
+            async for _ in client.send_message(_request()):
+                pass
+    assert delegate.executed == 0
 
 
 @pytest.mark.asyncio
