@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Dual-principal evaluation (`DualPrincipalMapper`).** Emits two requests per tool
+  call — the end user's grant and the agent's own permission boundary — ANDed by the
+  engine's all-allow-or-block aggregation, so an agent can never exercise a permission
+  its boundary denies even when the human holds it. The user leg is request-scoped only
+  (no `agent_id` fallback — that would collapse the AND); either principal unresolvable
+  fails closed; `"workload"` stays reserved. Works via the `mapper=` seam in the scanner,
+  the NeMo rail and the FastMCP middleware (tools + listing); A2A and MCP resource/prompt
+  paths are tracked in [#39](https://github.com/jhawlwut/apparitor/issues/39). Note: dual
+  calls always evaluate as a batch, so the opt-in ALLOW cache is not consulted.
+- `ToolCallMapper.map()` may now return a **sequence** of requests that must all be
+  allowed (backward compatible; `None`/empty sequence abstains — an empty group can
+  never read as an allow, on either the aggregate or the per-item path).
 - **A2A agent-executor enforcement point (`apparitor.a2a`, optional `[a2a]` extra).**
   `A2AAuthorizationExecutor` wraps a deployment's `AgentExecutor` and authorizes every
   agent-to-agent invocation before it runs (action `agent.invoke`; resource
@@ -113,6 +125,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The structured decision log now records **every distinct principal** as `subjects=`
+  (was `subject=` with only the first leg) — under dual-principal evaluation the audit
+  trail must name both the user and the agent — and `resources=` / `fingerprints=`
+  carry one entry per evaluation request, so dual legs appear twice. Update log parsers.
+- `DefaultToolCallMapper.map()`'s return annotation is widened to the full
+  `ToolCallMapper` union; a typed subclass that delegates to `super().map()` must
+  accept the widened return (runtime behaviour of the default mapper is unchanged).
 - **Renamed to `apparitor` and repositioned.** The project is now a vendor-neutral
   authorization layer that aggregates policy engines (AuthZEN, Cedar, OpenFGA, Rego) across
   agentic firewalls (LlamaFirewall today; NeMo Guardrails planned), rather than an

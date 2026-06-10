@@ -29,15 +29,19 @@ from .decision import (
 from .errors import AuthZENClientError, AuthZENConfigError, AuthZENServiceError
 from .mapping import DefaultToolCallMapper
 from .metrics import InMemoryMetrics, MetricsSink
-from .models import BatchEvaluationRequest, EvaluationItem, EvaluationsOptions
+from .models import (
+    BatchEvaluationRequest,
+    EvaluationItem,
+    EvaluationRequest,
+    EvaluationsOptions,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from .backends import DecisionBackend
     from .config import ScannerConfig
     from .mapping import ToolCallMapper
-    from .models import EvaluationRequest
 
 #: Predicate over a PDP response ``context`` that may escalate (never downgrade) a verdict.
 ReviewPredicate = Callable[[dict[str, Any]], bool]
@@ -191,8 +195,14 @@ class AuthorizationEngine:
         try:
             requests = self._build_requests(tool_calls, ctx)
         except AuthZENConfigError as exc:
-            # Our misconfiguration (e.g. no subject) — fail closed, loudly.
+            # Our misconfiguration (e.g. no subject) — fail closed, loudly. The warning is
+            # the operator's only signal: no request was built, so no decision log follows.
+            logger.warning("authzen: mapping failed, blocking (%s)", exc)
             return VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR), []
+        except Exception as exc:
+            # A buggy custom mapper must fail closed here exactly as it does on the
+            # per-item path — the engine never raises, never allows on error.
+            return self._fault_verdict(exc), []
 
         if not requests:  # every mapper abstained
             return VerdictResult(Verdict.SKIP, _SKIP_REASON, VerdictStatus.SKIPPED), []
@@ -222,24 +232,27 @@ class AuthorizationEngine:
         self, calls: list[NormalizedToolCall], ctx: Mapping[str, Any]
     ) -> list[VerdictResult]:
         try:
-            mapped = [self._mapper.map(call, ctx) for call in calls]
+            mapped = [_as_requests(self._mapper.map(call, ctx)) for call in calls]
         except Exception as exc:  # incl. AuthZENConfigError — a mapper fault blocks every item
-            failed = (
-                VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR)
-                if isinstance(exc, AuthZENConfigError)
-                else self._fault_verdict(exc)
-            )
+            if isinstance(exc, AuthZENConfigError):
+                # No requests were built, so no decision log follows — warn or it's invisible.
+                logger.warning("authzen: mapping failed, blocking all items (%s)", exc)
+                failed = VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR)
+            else:
+                failed = self._fault_verdict(exc)
             return [failed] * len(calls)
 
-        # Abstained items stay BLOCK so positions align and abstention can never reveal.
+        # Abstained items (None or an EMPTY group — all([]) must never read as allow)
+        # stay BLOCK so positions align and abstention can never reveal.
         results = [
             VerdictResult(Verdict.BLOCK, "mapper abstained (fail closed)", VerdictStatus.ERROR)
         ] * len(calls)
-        indexed = [(i, request) for i, request in enumerate(mapped) if request is not None]
+        indexed = [(i, group) for i, group in enumerate(mapped) if group]
         if not indexed:
             return results
 
         try:
+            flat = [request for _, group in indexed for request in group]
             response = await self._client.evaluate_batch(
                 BatchEvaluationRequest(
                     evaluations=[
@@ -249,17 +262,24 @@ class AuthorizationEngine:
                             resource=r.resource,
                             context=r.context,
                         )
-                        for _, r in indexed
+                        for r in flat
                     ],
                     options=EvaluationsOptions(),
                 )
             )
-            if len(response.evaluations) != len(indexed):
+            if len(response.evaluations) != len(flat):
                 # Non-conformant PDP (short/long array): nothing in the batch is trustworthy.
                 raise AuthZENClientError("mismatched batch")
-            for (i, _), item in zip(indexed, response.evaluations, strict=True):
-                single = map_single(item.decision, wants_review=self._wants_review(item.context))
-                results[i] = VerdictResult(single, _reason_for(single))
+            # AND within each call's group (a multi-request mapper, e.g. dual-principal):
+            # the combined verdict is the most severe leg — escalation can never widen.
+            items = iter(response.evaluations)
+            for i, group in indexed:
+                combined = Verdict.ALLOW
+                for _ in group:
+                    item = next(items)
+                    leg = map_single(item.decision, wants_review=self._wants_review(item.context))
+                    combined = escalate(combined, leg)
+                results[i] = VerdictResult(combined, _reason_for(combined))
             return results
         except Exception as exc:
             # Covers the PDP round trip AND per-item mapping (a raising review predicate
@@ -292,9 +312,7 @@ class AuthorizationEngine:
     ) -> list[EvaluationRequest]:
         requests: list[EvaluationRequest] = []
         for call in tool_calls:
-            mapped = self._mapper.map(call, ctx)
-            if mapped is not None:
-                requests.append(mapped)
+            requests.extend(_as_requests(self._mapper.map(call, ctx)))
         return requests
 
     async def _evaluate(self, requests: list[EvaluationRequest]) -> VerdictResult:
@@ -333,6 +351,16 @@ class AuthorizationEngine:
         response = await self._client.evaluate_batch(batch)
         decisions = [item.decision for item in response.evaluations]
         verdict = aggregate(decisions, expected=len(requests))
+        if verdict is not Verdict.ALLOW:
+            # The aggregate hides which leg denied — name them (principal/action/resource
+            # ids only, never arguments) so an operator can tell a user-grant deny from an
+            # agent-boundary deny without replaying the batch against the PDP.
+            denied = [
+                f"{r.subject.type}:{r.subject.id} {r.action.name} {r.resource.id}"
+                for r, item in zip(requests, response.evaluations, strict=True)
+                if not item.decision
+            ]
+            logger.info("authzen batch denied_legs=%s", denied)
         # Apply the review predicate per item and escalate the aggregate (escalation can
         # never downgrade a BLOCK), so HUMAN_REVIEW is reachable on multi-call messages too.
         if any(self._wants_review(item.context) for item in response.evaluations):
@@ -347,21 +375,21 @@ class AuthorizationEngine:
     ) -> None:
         """Operator/audit decision log.
 
-        Records the **subject (decision principal)**, resource ids, correlation id, and an
+        Records every distinct **decision principal**, resource ids, correlation id, and an
         argument *fingerprint* — deliberately, per requirements §3.10, since an authorization
-        audit trail must say *who* was allowed/denied. Raw tool arguments and tokens are
-        never logged (arguments are fingerprinted). The subject id is the principal itself,
-        so it may be an email or other identifier; treat this logger as sensitive and route
-        it accordingly.
+        audit trail must say *who* was allowed/denied (under dual-principal evaluation that
+        is both the user and the agent, never just the first leg). Raw tool arguments and
+        tokens are never logged (arguments are fingerprinted). Subject ids are the
+        principals themselves, so they may be emails or other identifiers; treat this
+        logger as sensitive and route it accordingly.
         """
-        first = requests[0]
-        correlation = (first.context or {}).get("correlation_id")
+        correlation = (requests[0].context or {}).get("correlation_id")
         logger.info(
-            "authzen decision verdict=%s status=%s subject=%s correlation=%s "
+            "authzen decision verdict=%s status=%s subjects=%s correlation=%s "
             "resources=%s fingerprints=%s latency_ms=%.1f",
             result.verdict.value,
             result.status.value,
-            first.subject.id,
+            sorted({r.subject.id for r in requests}),
             correlation,
             [r.resource.id for r in requests],
             [_fingerprint(r) for r in requests],
@@ -370,6 +398,22 @@ class AuthorizationEngine:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _as_requests(
+    mapped: EvaluationRequest | Sequence[EvaluationRequest] | None,
+) -> list[EvaluationRequest]:
+    """Normalise a mapper's return — single request, sequence, or abstention — to a list.
+
+    The contract is ``Sequence`` (re-iterable); the return is materialised to a fresh list
+    here, in one place, so even a non-conforming one-shot iterator gets consumed exactly
+    once up front rather than silently half-read somewhere downstream.
+    """
+    if mapped is None:
+        return []
+    if isinstance(mapped, EvaluationRequest):
+        return [mapped]
+    return list(mapped)
 
 
 class _UnparseableToolCall(Exception):

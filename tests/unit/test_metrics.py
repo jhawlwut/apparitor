@@ -232,7 +232,7 @@ async def test_structured_decision_log_carries_ids_and_fingerprint(
     text = caplog.text
     assert "verdict=allow" in text
     assert "status=success" in text
-    assert "subject=bot-123" in text
+    assert "subjects=['bot-123']" in text
     assert "correlation=corr-9" in text
     assert "fingerprints=" in text
     assert "latency_ms=" in text
