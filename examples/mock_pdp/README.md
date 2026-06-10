@@ -3,10 +3,24 @@
 A tiny, dependency-free AuthZEN PDP for tests and demos — implemented in
 [`mock_pdp.py`](mock_pdp.py) using only the standard library. It serves
 `POST /access/v1/evaluation` and `/access/v1/evaluations`, allowing everything except a
-configurable deny-list of `"<action>:<resource id>"` rules.
+configurable deny-list.
+
+Two deny-rule forms are supported:
+
+| Form | Matches |
+| --- | --- |
+| `<action>:<resource_id>` | Any subject performing that action on that resource |
+| `<subject_id>:<action>:<resource_id>` | A specific subject performing that action on that resource |
+
+Both are pure membership tests on the composed key — never split or parsed — so resource
+ids containing `:` are safe.
 
 ```bash
-python examples/mock_pdp/mock_pdp.py --port 8080 --deny tool_call.execute:database.delete_table
+# Deny any subject from executing delete_table
+python examples/mock_pdp/mock_pdp.py --port 8080 --deny tool_call.execute:delete_table
+
+# Deny only "travel-bot" from executing book_flight (other subjects may still call it)
+python examples/mock_pdp/mock_pdp.py --port 8080 --deny travel-bot:tool_call.execute:book_flight
 ```
 
 Then point the scanner at it (local dev → `allow_insecure_pdp=True` since it's plain HTTP):
