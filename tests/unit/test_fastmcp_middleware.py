@@ -656,3 +656,31 @@ async def test_unusable_server_label_refuses_prompt(make_config, respx_mock) -> 
                 with pytest.raises(McpError, match="not authorized"):
                     await client.get_prompt("greet", {})
     assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_dual_principal_mapper_at_the_mcp_boundary(make_config, respx_mock) -> None:
+    # The middleware injects the validated token subject as request_context["subject"],
+    # which becomes the dual mapper's USER leg; the agent leg comes from config.agent_id.
+    # The agent's own boundary denies even though the user is allowed.
+    from apparitor.mapping import DualPrincipalMapper
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        evaluations = [
+            {"decision": item["subject"]["id"] != "travel-bot"} for item in body["evaluations"]
+        ]
+        return httpx.Response(200, json={"evaluations": evaluations})
+
+    route = respx_mock.post(_BATCH_URL).mock(side_effect=respond)
+    config = make_config(agent_id="travel-bot")
+    guard = FastMCPAuthorizationMiddleware(config=config, mapper=DualPrincipalMapper(config))
+    async with guard:
+        with _token({"sub": "alice@acme.com"}):
+            async with Client(_server(guard)) as client:
+                with pytest.raises(ToolError, match="not authorized"):
+                    await client.call_tool("read_file", {"path": "/tmp/a"})
+    assert route.call_count == 1  # both legs ride one batch round trip
+    sent = json.loads(route.calls.last.request.content)
+    subjects = [item["subject"]["id"] for item in sent["evaluations"]]
+    assert subjects == ["alice@acme.com", "travel-bot"]

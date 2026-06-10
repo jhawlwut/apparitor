@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import contextvars
 import json
-from collections.abc import Iterator, Mapping
+import logging
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -41,6 +42,8 @@ current_subject: contextvars.ContextVar[Subject | None] = contextvars.ContextVar
 current_request_context: contextvars.ContextVar[Mapping[str, Any] | None] = contextvars.ContextVar(
     "authzen_current_request_context", default=None
 )
+
+logger = logging.getLogger("apparitor")
 
 _REDACTED = "***redacted***"
 
@@ -110,14 +113,20 @@ def mcp_resource_id(server: str, tool: str) -> str:
 
 @runtime_checkable
 class ToolCallMapper(Protocol):
-    """Maps a tool call + request context to an AuthZEN request, or ``None``."""
+    """Maps a tool call + request context to AuthZEN request(s), or ``None``.
+
+    A mapper may return a single request, a **sequence** of requests that must *all* be
+    allowed for the call to proceed (the engine's all-allow-or-block aggregation — how
+    :class:`DualPrincipalMapper` ANDs two principals), or ``None`` / an empty sequence to
+    abstain.
+    """
 
     def map(
         self,
         tool_call: NormalizedToolCall,
         request_context: Mapping[str, Any],
-    ) -> EvaluationRequest | None:
-        """Return an :class:`EvaluationRequest`, or ``None`` to abstain."""
+    ) -> EvaluationRequest | Sequence[EvaluationRequest] | None:
+        """Return request(s) that must all be allowed, or ``None`` to abstain."""
         ...
 
 
@@ -169,7 +178,7 @@ class DefaultToolCallMapper:
         self,
         tool_call: NormalizedToolCall,
         request_context: Mapping[str, Any],
-    ) -> EvaluationRequest | None:
+    ) -> EvaluationRequest | Sequence[EvaluationRequest] | None:
         return EvaluationRequest(
             subject=self._resolve_subject(request_context),
             action=Action(name=self._config.action_name),
@@ -211,6 +220,102 @@ class MCPResourceMapper(DefaultToolCallMapper):
             id=mcp_resource_id(label, _normalize_tool_name(tool_call.name)),
             properties={"arguments": self._arguments(tool_call)},
         )
+
+
+class DualPrincipalMapper(DefaultToolCallMapper):
+    """Dual-principal evaluation: the **user's grant AND the agent's own boundary**.
+
+    Emits two evaluation requests per tool call — one for the end user the agent acts
+    for, one for the agent principal itself — sharing the same action/resource/context.
+    The engine's all-allow-or-block aggregation then delivers the AND: the call proceeds
+    only when *both* principals are allowed, so an agent can never exercise a permission
+    its own boundary denies, even when the human holds it. This is the evaluation
+    semantics of a permission boundary, enforced engine-side (a policy that ignores one
+    principal cannot widen the result).
+
+    The user subject is request-scoped only — ``request_context["subject"]`` or
+    :data:`current_subject` — and deliberately has **no** ``agent_id`` fallback: falling
+    back to the agent identity for the user leg would collapse the AND into a single
+    principal. The agent subject is fixed at construction (an explicit ``agent_subject``,
+    or ``config.agent_id`` + ``config.subject_type``). Either principal being
+    unresolvable fails closed.
+
+    Trade-offs: every call evaluates as a batch — one batch call on the AuthZEN and
+    in-process Cedar backends, a per-leg fan-out on the native OPA backend — so the
+    opt-in ALLOW cache (a single-request fast path) is never consulted; construction
+    warns once when ``cache_enabled`` is set. The agent principal is fixed per mapper:
+    run one mapper (and engine) per agent — per-call agent identity in multi-agent
+    chains is out of scope. A resolved user equal to the agent principal fails closed
+    (it would collapse the AND — e.g. the FastMCP middleware's ``allow_static_subject``
+    injecting the same static agent as the user leg). If the user leg arrives as a
+    verified ``workload`` subject (see :mod:`apparitor.fastmcp`), the AND becomes
+    workload-grant ∧ agent-boundary — deliberate, the reservation only forbids *minting*
+    workload principals. At the MCP boundary the mapper seam covers ``tools/call`` and
+    listing filtering; resource reads and prompt gets are adapter-shaped and stay
+    single-principal (see :mod:`apparitor.fastmcp`).
+    """
+
+    def __init__(self, config: ScannerConfig, *, agent_subject: Subject | None = None) -> None:
+        super().__init__(config)
+        if agent_subject is None:
+            if config.agent_id is None:
+                raise AuthZENConfigError(
+                    "DualPrincipalMapper requires an agent principal: pass agent_subject"
+                    " or set config.agent_id"
+                )
+            agent_subject = Subject(type=config.subject_type, id=config.agent_id)
+        if agent_subject.type == "workload":
+            # Reserved for verified client-credentials tokens (see apparitor.fastmcp);
+            # a static agent principal in that namespace would alias machine policies.
+            raise AuthZENConfigError('subject type "workload" is reserved')
+        self._agent_subject = agent_subject
+        if config.cache_enabled:
+            logger.warning(
+                "apparitor: dual-principal evaluation always batches, so the ALLOW cache"
+                " (cache_enabled=True) will never be consulted"
+            )
+
+    def _resolve_user(self, request_context: Mapping[str, Any]) -> Subject:
+        injected = request_context.get("subject")
+        if isinstance(injected, Subject):
+            return injected
+        subject = current_subject.get()
+        if subject is not None:
+            return subject
+        raise AuthZENConfigError(
+            "dual-principal evaluation requires a request-scoped user subject"
+            " (request_context['subject'] or current_subject); the agent_id fallback"
+            " does not apply — it would collapse the AND into one principal"
+        )
+
+    def map(
+        self,
+        tool_call: NormalizedToolCall,
+        request_context: Mapping[str, Any],
+    ) -> Sequence[EvaluationRequest]:
+        user = self._resolve_user(request_context)
+        if user.type == self._agent_subject.type and user.id == self._agent_subject.id:
+            # A user leg equal to the agent principal collapses the AND into one
+            # principal (e.g. an upstream static-subject fallback injecting the agent
+            # as the "user") — refuse rather than silently halve the check.
+            raise AuthZENConfigError(
+                "dual-principal evaluation requires distinct principals: the resolved"
+                f" user equals the agent subject ({user.type}:{user.id})"
+            )
+        action = Action(name=self._config.action_name)
+        resource = self._resource(tool_call, request_context)
+        context = self._context(request_context)
+        return [
+            EvaluationRequest(subject=user, action=action, resource=resource, context=context),
+            EvaluationRequest(
+                subject=self._agent_subject,
+                action=action,
+                # Each leg gets its own resource instance so no future post-map hook can
+                # mutate both legs through one shared object.
+                resource=resource.model_copy(deep=True),
+                context=context,
+            ),
+        ]
 
 
 def _normalize_tool_name(name: str) -> str:

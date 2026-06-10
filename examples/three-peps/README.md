@@ -11,9 +11,11 @@ no network.
 | NeMo Guardrails rail (`NeMoAuthorizationRails`) | custom action + `output_mapping` | `allowed` bool (fail-closed) |
 | FastMCP middleware (`FastMCPAuthorizationMiddleware`) | server-side `tools/call` hook | execute / `ToolError` refusal |
 
-The policy is the "SCP for agents" deny-override: `forbid` on `destructive == true` beats
-every `permit`, so `delete_database` blocks for *any* subject while `read_file` is allowed
-for the demo agent. Each lane must print the same table:
+The policy is a deny-override guardrail: `forbid` on `destructive == true` beats every
+`permit`, so `delete_database` blocks for *any* subject while `read_file` is allowed for
+the demo agent. (This in-policy `forbid` works when one PDP holds all your policy; the
+`DualPrincipalMapper` generalises the same idea — see the README's identity ladder — by
+making the agent boundary a separate decision that works across engines.) Each lane must print the same table:
 
 ```text
 read_file        -> ALLOW

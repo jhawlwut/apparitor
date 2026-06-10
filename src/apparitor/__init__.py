@@ -46,6 +46,7 @@ from .errors import (
 from .mapping import (
     MCP_SERVER_LABEL_KEY,
     DefaultToolCallMapper,
+    DualPrincipalMapper,
     MCPResourceMapper,
     ToolCallMapper,
     current_request_context,
@@ -127,6 +128,7 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
     # mapping
     "ToolCallMapper",
     "DefaultToolCallMapper",
+    "DualPrincipalMapper",
     "MCPResourceMapper",
     "MCP_SERVER_LABEL_KEY",
     "current_subject",

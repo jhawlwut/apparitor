@@ -575,6 +575,24 @@ async def test_evaluate_each_raising_mapper_fails_closed(
 
 
 @pytest.mark.asyncio
+async def test_raising_mapper_fails_closed_on_aggregate_path(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    # The aggregate path must block on ANY mapper fault (not just config errors),
+    # mirroring evaluate_each — the engine never raises, never allows on error.
+    class BoomMapper:
+        def map(self, tool_call, request_context):
+            raise RuntimeError("mapper bug")
+
+    route = respx_mock.post(_EVAL_URL)
+    engine = _engine(make_config(), noop_sleep, mapper=BoomMapper())
+    result = await engine.evaluate_tool_calls([make_openai_call("read")])
+    assert result.verdict is Verdict.BLOCK
+    assert result.status is VerdictStatus.ERROR
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
 async def test_evaluate_each_metrics_fault_does_not_alter_verdicts(
     make_config, noop_sleep, respx_mock
 ) -> None:
@@ -591,3 +609,273 @@ async def test_evaluate_each_metrics_fault_does_not_alter_verdicts(
     engine = _engine(make_config(), noop_sleep, metrics=RaisingSink())
     results = await engine.evaluate_each(_normalized("read", "rm"))
     assert [r.verdict for r in results] == [Verdict.ALLOW, Verdict.BLOCK]
+
+
+# --- dual-principal (user AND agent) evaluation --------------------------------------
+
+
+def _dual_engine(make_config, noop_sleep, **cfg):
+    from apparitor.mapping import DualPrincipalMapper
+
+    config = make_config(agent_id="travel-bot", **cfg)
+    return _engine(config, noop_sleep, mapper=DualPrincipalMapper(config))
+
+
+def _alice():
+    from apparitor.mapping import subject_scope
+    from apparitor.models import Subject
+
+    return subject_scope(Subject(type="user", id="alice@acme.com"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("user_ok", "agent_ok", "expected"),
+    [
+        (True, True, Verdict.ALLOW),
+        (True, False, Verdict.BLOCK),
+        (False, True, Verdict.BLOCK),
+        (False, False, Verdict.BLOCK),
+    ],
+)
+async def test_dual_principal_truth_table(
+    make_config, make_openai_call, noop_sleep, respx_mock, user_ok, agent_ok, expected
+) -> None:
+    # One call → two legs → the engine's all-allow-or-block batch aggregation is the AND:
+    # the agent's own boundary denies even when the user holds the permission, and vice
+    # versa.
+    respx_mock.post(_BATCH_URL).respond(
+        json={"evaluations": [{"decision": user_ok}, {"decision": agent_ok}]}
+    )
+    engine = _dual_engine(make_config, noop_sleep)
+    with _alice():
+        result = await engine.evaluate_tool_calls([make_openai_call("delete_table")])
+    assert result.verdict is expected
+
+
+@pytest.mark.asyncio
+async def test_dual_principal_sends_both_legs(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    import json as jsonlib
+
+    route = respx_mock.post(_BATCH_URL).respond(
+        json={"evaluations": [{"decision": True}, {"decision": True}]}
+    )
+    engine = _dual_engine(make_config, noop_sleep)
+    with _alice():
+        await engine.evaluate_tool_calls([make_openai_call("read")])
+    sent = jsonlib.loads(route.calls.last.request.content)
+    subjects = [item["subject"]["id"] for item in sent["evaluations"]]
+    assert subjects == ["alice@acme.com", "travel-bot"]
+
+
+@pytest.mark.asyncio
+async def test_dual_principal_multi_call_blocks_on_any_leg(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    # Two calls → four legs; one denied agent leg blocks the whole message.
+    respx_mock.post(_BATCH_URL).respond(
+        json={
+            "evaluations": [
+                {"decision": True},
+                {"decision": True},
+                {"decision": True},
+                {"decision": False},
+            ]
+        }
+    )
+    engine = _dual_engine(make_config, noop_sleep)
+    with _alice():
+        result = await engine.evaluate_tool_calls(
+            [make_openai_call("read"), make_openai_call("delete")]
+        )
+    assert result.verdict is Verdict.BLOCK
+
+
+@pytest.mark.asyncio
+async def test_dual_principal_missing_user_fails_closed(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    route = respx_mock.post(_BATCH_URL)
+    engine = _dual_engine(make_config, noop_sleep)
+    result = await engine.evaluate_tool_calls([make_openai_call("read")])
+    assert result.verdict is Verdict.BLOCK
+    assert result.status is VerdictStatus.ERROR
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_dual_principal_review_escalation_on_agent_leg(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    respx_mock.post(_BATCH_URL).respond(
+        json={
+            "evaluations": [
+                {"decision": True},
+                {"decision": True, "context": {"step_up": True}},
+            ]
+        }
+    )
+    config = make_config(agent_id="travel-bot")
+    from apparitor.mapping import DualPrincipalMapper
+
+    engine = _engine(
+        config,
+        noop_sleep,
+        mapper=DualPrincipalMapper(config),
+        review_predicate=lambda ctx: bool(ctx.get("step_up")),
+    )
+    with _alice():
+        result = await engine.evaluate_tool_calls([make_openai_call("transfer")])
+    assert result.verdict is Verdict.HUMAN_REVIEW
+
+
+@pytest.mark.asyncio
+async def test_empty_sequence_mapper_is_abstention_not_allow(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    # all([]) is vacuously true — an empty group must read as abstention (SKIP on the
+    # aggregate path), never as an allow.
+    class EmptyMapper:
+        def map(self, tool_call, request_context):
+            return []
+
+    route = respx_mock.post(_EVAL_URL)
+    engine = _engine(make_config(), noop_sleep, mapper=EmptyMapper())
+    result = await engine.evaluate_tool_calls([make_openai_call("read")])
+    assert result.verdict is Verdict.SKIP
+    assert result.status is VerdictStatus.SKIPPED
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_groups_dual_legs_positionally(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    # Two calls under a dual mapper → groups of two legs; verdicts stay positional and
+    # AND within each group ([T,T] → ALLOW, [T,F] → BLOCK).
+    respx_mock.post(_BATCH_URL).respond(
+        json={
+            "evaluations": [
+                {"decision": True},
+                {"decision": True},
+                {"decision": True},
+                {"decision": False},
+            ]
+        }
+    )
+    engine = _dual_engine(make_config, noop_sleep)
+    with _alice():
+        results = await engine.evaluate_each(_normalized("read", "delete"))
+    assert [r.verdict for r in results] == [Verdict.ALLOW, Verdict.BLOCK]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_group_denied_first_leg_blocks(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    # [F,T] must BLOCK: a denied first leg can never be overwritten by a later allow
+    # (catches a "combined = last leg" regression that [T,F] alone would let pass).
+    respx_mock.post(_BATCH_URL).respond(
+        json={
+            "evaluations": [
+                {"decision": False},
+                {"decision": True},
+                {"decision": True},
+                {"decision": True},
+            ]
+        }
+    )
+    engine = _dual_engine(make_config, noop_sleep)
+    with _alice():
+        results = await engine.evaluate_each(_normalized("delete", "read"))
+    assert [r.verdict for r in results] == [Verdict.BLOCK, Verdict.ALLOW]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_group_review_first_leg_escalates(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    # [review,T] must surface HUMAN_REVIEW for the group — escalation sticks even when a
+    # later leg is a clean allow.
+    respx_mock.post(_BATCH_URL).respond(
+        json={
+            "evaluations": [
+                {"decision": True, "context": {"step_up": True}},
+                {"decision": True},
+            ]
+        }
+    )
+    from apparitor.mapping import DualPrincipalMapper
+
+    config = make_config(agent_id="travel-bot")
+    engine = _engine(
+        config,
+        noop_sleep,
+        mapper=DualPrincipalMapper(config),
+        review_predicate=lambda ctx: bool(ctx.get("step_up")),
+    )
+    with _alice():
+        results = await engine.evaluate_each(_normalized("transfer"))
+    assert [r.verdict for r in results] == [Verdict.HUMAN_REVIEW]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_long_batch_fails_closed(make_config, noop_sleep, respx_mock) -> None:
+    # A non-conformant PDP returning MORE decisions than legs is just as untrustworthy as
+    # one returning fewer — every item must fail closed, not consume the extras.
+    respx_mock.post(_BATCH_URL).respond(
+        json={
+            "evaluations": [
+                {"decision": True},
+                {"decision": True},
+                {"decision": True},
+            ]
+        }
+    )
+    engine = _dual_engine(make_config, noop_sleep)
+    with _alice():
+        results = await engine.evaluate_each(_normalized("read"))
+    assert [r.verdict for r in results] == [Verdict.BLOCK]
+    assert results[0].status is VerdictStatus.ERROR
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_empty_group_blocks_item(make_config, noop_sleep, respx_mock) -> None:
+    # An empty group on the positional path must BLOCK its item (never vacuous-allow),
+    # while siblings still evaluate.
+    class SelectiveEmpty:
+        def __init__(self, config):
+            from apparitor.mapping import DefaultToolCallMapper
+
+            self._inner = DefaultToolCallMapper(config)
+
+        def map(self, tool_call, request_context):
+            if tool_call.name == "hidden":
+                return []
+            return self._inner.map(tool_call, request_context)
+
+    respx_mock.post(_BATCH_URL).respond(json={"evaluations": [{"decision": True}]})
+    cfg = make_config()
+    engine = _engine(cfg, noop_sleep, mapper=SelectiveEmpty(cfg))
+    results = await engine.evaluate_each(_normalized("hidden", "read"))
+    assert results[0].verdict is Verdict.BLOCK
+    assert results[0].status is VerdictStatus.ERROR
+    assert results[1].verdict is Verdict.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_decision_log_records_all_principals(
+    make_config, make_openai_call, noop_sleep, respx_mock, caplog
+) -> None:
+    # The audit trail must say WHO was denied — both principals under dual evaluation.
+    import logging
+
+    respx_mock.post(_BATCH_URL).respond(
+        json={"evaluations": [{"decision": True}, {"decision": False}]}
+    )
+    engine = _dual_engine(make_config, noop_sleep)
+    with _alice(), caplog.at_level(logging.INFO, logger="apparitor"):
+        await engine.evaluate_tool_calls([make_openai_call("delete")])
+    assert "subjects=['alice@acme.com', 'travel-bot']" in caplog.text
