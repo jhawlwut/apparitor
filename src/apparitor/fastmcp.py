@@ -87,7 +87,6 @@ from .mapping import (
     MCPResourceMapper,
     current_request_context,
     current_subject,
-    mcp_resource_id,
     request_context_attrs,
 )
 from .models import Action, EvaluationRequest, Resource, Subject
@@ -374,21 +373,26 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
     def _prompt_request(
         self, context: MiddlewareContext[mt.GetPromptRequestParams], ctx: dict[str, Any]
     ) -> EvaluationRequest | None:
-        # The prompt name is kept verbatim, like resource URIs: FastMCP registers
-        # case-variant prompts as DISTINCT components, so folding them onto one policy key
-        # would let a single ALLOW cover both. Prompt arguments are not forwarded in v1.
-        # An embedded "/" in the name fails closed inside mcp_resource_id (ambiguous key),
-        # surfacing as a refusal.
+        # The prompt name is kept VERBATIM, like resource URIs: FastMCP registers case-
+        # and whitespace-variant prompts as DISTINCT components, so folding them onto one
+        # policy key would let a single ALLOW cover both (which is why mcp_resource_id,
+        # which trims segments, is not used for the name). Prompt arguments are not
+        # forwarded in v1. A name that is empty or contains "/" cannot form an
+        # unambiguous key — refuse.
         label = ctx.get(MCP_SERVER_LABEL_KEY)
-        if not isinstance(label, str):
-            logger.warning("apparitor: no server label for prompt authorization; refusing")
+        if not isinstance(label, str) or not label.strip() or "/" in label.strip():
+            logger.warning("apparitor: no usable server label for prompt authorization; refusing")
+            return None
+        name = context.message.name
+        if not name.strip() or "/" in name:
+            logger.warning("apparitor: unusable prompt name for authorization; refusing")
             return None
         return EvaluationRequest(
             subject=ctx["subject"],
             action=Action(name="prompt.get"),
             resource=Resource(
                 type="mcp_prompt",
-                id=mcp_resource_id(label, context.message.name),
+                id=f"{label.strip()}/{name}",
             ),
             context=request_context_attrs(ctx),
         )
