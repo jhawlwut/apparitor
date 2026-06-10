@@ -148,9 +148,8 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
 def __getattr__(name: str) -> object:
     """Lazily expose the optional-dependency exports (PEP 562).
 
-    :class:`AuthZENScanner` pulls in LlamaFirewall, :class:`CedarBackend` pulls in cedarpy, and
-    :class:`NeMoAuthorizationRails` pulls in nemoguardrails; importing them lazily keeps a plain
-    ``import apparitor`` working without those extras.
+    Each branch below pulls an optional host/engine SDK; importing them lazily keeps a
+    plain ``import apparitor`` working without any extras installed.
     """
     if name == "AuthZENScanner":
         from .scanner import AuthZENScanner

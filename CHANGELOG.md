@@ -17,7 +17,8 @@ All notable changes to this project are documented here. The format follows
   `ServerCallContext.state["subject"]` and then the opt-in static `agent_id` — an
   unauthenticated caller is refused, and ambient contextvars are deliberately ignored
   (the SDK's detached producer task snapshots them, so they go stale across turns). The request's A2A `tenant` is forwarded in the
-  AuthZEN context for multi-tenant policies. Verdicts map fail-closed: only a clean
+  AuthZEN context for multi-tenant policies (a caller-supplied claim for policies to
+  cross-check, not proof). Verdicts map fail-closed: only a clean
   `ALLOW` reaches the wrapped executor; everything else raises a deliberately generic A2A
   error (the rich reason stays in the operator log). `cancel` passes through ungated in
   v1 (documented). Built on `AuthorizationEngine.evaluate_requests` — no core changes.

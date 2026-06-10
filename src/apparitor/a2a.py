@@ -24,9 +24,11 @@ Subject resolution (first match wins; no match refuses the invocation):
    here: the executor runs inside the SDK's detached, long-lived producer task, where
    contextvars are snapshotted at task creation and go stale across turns — a
    cross-request identity leak waiting to happen.
-3. ``config.agent_id``, **only** when ``allow_static_subject=True``. Off by default: an
-   unauthenticated network caller must never be silently authorized as a static subject
-   (a confused deputy). Opt in only where the transport itself is trusted.
+3. ``config.agent_id``, **only** when ``allow_static_subject=True`` (typed with
+   ``config.subject_type``, deliberately distinct from the constructor's ``subject_type``,
+   which types authenticated peers). Off by default: an unauthenticated network caller
+   must never be silently authorized as a static subject (a confused deputy). Opt in only
+   where the transport itself is trusted.
 
 Host enrichment attributes (``conversation_id`` / ``user_id`` / ``correlation_id``) are
 likewise read from ``ServerCallContext.state``, never from ambient context.
@@ -34,23 +36,34 @@ likewise read from ``ServerCallContext.state``, never from ambient context.
 The AuthZEN tuple: action ``agent.invoke``; resource ``{type: "a2a_agent",
 id: <agent_label>}``, or — when ``skill_resolver`` resolves a skill for the request —
 ``{type: "a2a_skill", id: "<agent_label>/<skill>"}`` (segments validated like every other
-policy key: non-empty, no embedded ``/``; the skill is kept verbatim). The A2A ``tenant``
+policy key: non-empty, no embedded ``/``; the skill is kept verbatim). **The resolver must
+derive the skill from the exact field the delegate dispatches on** — deriving it from
+caller-controlled metadata would let the caller pick which policy key is evaluated while
+the delegate runs something else (authorization bypass by key-shifting). The A2A ``tenant``
 rides along in the AuthZEN ``context`` for multi-tenant policies, beside the standard
 host-context attributes — note it is the *request's* tenant as resolved by the SDK
 (protocol routing data), so policies should treat it as a claim to check against the
 subject, not as proof by itself.
 
 Verdict mapping is fail-closed: only a clean ``ALLOW`` reaches the wrapped executor.
-``BLOCK``, ``HUMAN_REVIEW``, abstention and any error refuse by raising an A2A
+``BLOCK``, ``HUMAN_REVIEW`` and any error refuse by raising an A2A
 ``InvalidRequestError`` whose text the client receives **verbatim** — so refusals are
 deliberately generic and the rich verdict/reason stays in the operator decision log and
-metrics. (``InvalidRequestError`` maps to JSON-RPC -32600 — semantically "invalid
-request" rather than "forbidden"; it is the stateless choice. The protocol-native
-alternative, a ``TASK_STATE_REJECTED`` task event, persists a task per denied request —
-unauthenticated write amplification on the task store — so it is deferred as a possible
-opt-in.) ``cancel`` is passed through: the SDK cancels the producer task *before*
+metrics. ``InvalidRequestError`` maps to JSON-RPC -32600 / HTTP 400 / gRPC
+``INVALID_ARGUMENT`` — semantically "invalid request" rather than "forbidden", but the
+1.x SDK ships no authorization-flavored error. Note the SDK persists a ``failed`` task
+for **every** refused invocation (its producer failure path), including unauthenticated
+ones — reject unauthenticated traffic in HTTP/authn middleware to cap task-store growth —
+and a denial on a follow-up turn fails the whole in-flight task, not just that turn.
+
+Enforcement scope: every invocation path that runs the executor (``message/send`` and
+``message/stream``, on JSON-RPC, REST and gRPC alike — all three transports share the
+request handler). Task **reads** never touch the executor and are not gated here:
+``tasks/get``/``tasks/list``/``tasks/subscribe`` return or stream task content, and
+push-notification-config CRUD is likewise open — gate those in HTTP/authn middleware.
+``cancel`` is passed through: the SDK cancels the producer task *before*
 ``executor.cancel`` runs, so gating at this seam could not actually prevent
-cancellation — authorize cancels in HTTP/authn middleware if needed.
+cancellation — that, too, belongs in HTTP/authn middleware.
 
 Wiring::
 
@@ -142,9 +155,12 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
             if pdp_url is None:
                 raise ValueError("provide either pdp_url or config")
             config = ScannerConfig(pdp_url=pdp_url)
-        if subject_type == "workload":
-            # Reserved by the FastMCP adapter for verified client-credentials tokens;
-            # minting other principals in that namespace would alias machine policies.
+        # Reserved by the FastMCP adapter for verified client-credentials tokens;
+        # minting other principals in that namespace (including via the static fallback's
+        # config.subject_type) would alias machine policies on a shared PDP.
+        if subject_type == "workload" or (
+            allow_static_subject and config.subject_type == "workload"
+        ):
             raise ValueError('subject type "workload" is reserved')
         label = agent_label.strip()
         if not label or "/" in label:
@@ -216,7 +232,8 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
         if user is not None and user.is_authenticated:
             name = user.user_name
             if isinstance(name, str) and name.strip():
-                return Subject(type=self._subject_type, id=name)
+                # Stripped like agent_label: whitespace variants must not split policy keys.
+                return Subject(type=self._subject_type, id=name.strip())
             # Authenticated but nameless is a broken authn integration — refuse rather
             # than guess; never fall through to a weaker subject.
             logger.warning("apparitor: authenticated A2A user has no user_name; refusing")
