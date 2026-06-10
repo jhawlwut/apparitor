@@ -571,8 +571,8 @@ async def test_resource_human_review_refuses_distinctly(make_config, respx_mock)
 
 @pytest.mark.asyncio
 async def test_prompt_name_with_separator_refuses(make_config, respx_mock) -> None:
-    # An embedded "/" would make an ambiguous policy key; mcp_resource_id rejects it and
-    # the refusal happens before any PDP trip.
+    # An embedded "/" would make an ambiguous policy key; _prompt_request refuses it
+    # before any PDP trip.
     route = respx_mock.post(_EVAL_URL)
     async with FastMCPAuthorizationMiddleware(config=make_config()) as guard:
         with subject_scope(_ALICE):
@@ -616,3 +616,43 @@ async def test_filter_listings_uses_call_time_keys_under_mount(make_config, resp
     assert [tool.name for tool in tools] == ["files_read_file"]
     # Identical to the resource id the mounted-call test pins for on_call_tool.
     assert seen_ids == ["gateway/files_read_file"]
+
+
+@pytest.mark.asyncio
+async def test_prompt_name_whitespace_is_kept_verbatim(make_config, respx_mock) -> None:
+    # " greet " and "greet" are distinct FastMCP components; their policy keys must not
+    # collapse onto each other (an ALLOW for one would silently cover the other), so the
+    # name is consulted at the PDP verbatim rather than refused or trimmed.
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": False})
+    async with FastMCPAuthorizationMiddleware(config=make_config()) as guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                with pytest.raises(McpError, match="not authorized"):
+                    await client.get_prompt(" greet ", {})
+    assert route.call_count == 1
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["resource"]["id"] == "files/ greet "
+
+
+@pytest.mark.asyncio
+async def test_whitespace_only_prompt_name_refuses(make_config, respx_mock) -> None:
+    route = respx_mock.post(_EVAL_URL)
+    async with FastMCPAuthorizationMiddleware(config=make_config()) as guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                with pytest.raises(McpError, match="not authorized"):
+                    await client.get_prompt("   ", {})
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_unusable_server_label_refuses_prompt(make_config, respx_mock) -> None:
+    # A label with an embedded "/" cannot form an unambiguous "<server>/<prompt>" key.
+    route = respx_mock.post(_EVAL_URL)
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), server_label="bad/label")
+    async with guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                with pytest.raises(McpError, match="not authorized"):
+                    await client.get_prompt("greet", {})
+    assert route.call_count == 0

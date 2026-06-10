@@ -183,3 +183,14 @@ def test_non_json_arguments_are_made_safe(make_config) -> None:
     assert req is not None
     args = req.resource.properties["arguments"]
     assert isinstance(args["tags"], str)  # stringified, JSON-serialisable
+
+
+def test_request_context_attrs_are_made_json_safe(make_config) -> None:
+    # A host-supplied non-JSON attr (e.g. a UUID correlation id) must not crash request
+    # serialisation downstream; it is stringified, like exotic tool-argument values.
+    import uuid
+
+    correlation = uuid.uuid4()
+    req = DefaultToolCallMapper(make_config()).map(_call(), {"correlation_id": correlation})
+    assert req is not None
+    assert req.context == {"correlation_id": str(correlation)}
