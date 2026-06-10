@@ -194,3 +194,55 @@ def test_request_context_attrs_are_made_json_safe(make_config) -> None:
     req = DefaultToolCallMapper(make_config()).map(_call(), {"correlation_id": correlation})
     assert req is not None
     assert req.context == {"correlation_id": str(correlation)}
+
+
+# --- dual-principal (user AND agent) mapping ------------------------------------------
+
+
+def test_dual_principal_emits_one_request_per_principal(make_config) -> None:
+    from apparitor.mapping import DualPrincipalMapper, subject_scope
+
+    mapper = DualPrincipalMapper(make_config(agent_id="travel-bot"))
+    with subject_scope(Subject(type="user", id="alice@acme.com")):
+        requests = mapper.map(_call("read"), {})
+    assert isinstance(requests, list) and len(requests) == 2
+    assert [r.subject.id for r in requests] == ["alice@acme.com", "travel-bot"]
+    assert requests[0].subject.type == "user"
+    assert requests[1].subject.type == "agent"
+    # Both legs evaluate the SAME action/resource — only the principal differs.
+    assert requests[0].resource == requests[1].resource
+    assert requests[0].action == requests[1].action
+
+
+def test_dual_principal_accepts_explicit_agent_subject(make_config) -> None:
+    from apparitor.mapping import DualPrincipalMapper
+
+    mapper = DualPrincipalMapper(
+        make_config(agent_id=None), agent_subject=Subject(type="agent", id="ops-bot")
+    )
+    requests = mapper.map(_call("read"), {"subject": Subject(type="user", id="bo@acme.com")})
+    assert [r.subject.id for r in requests] == ["bo@acme.com", "ops-bot"]
+
+
+def test_dual_principal_requires_agent_principal(make_config) -> None:
+    from apparitor.mapping import DualPrincipalMapper
+
+    with pytest.raises(AuthZENConfigError, match="agent principal"):
+        DualPrincipalMapper(make_config(agent_id=None))
+
+
+def test_dual_principal_rejects_workload_agent_subject(make_config) -> None:
+    from apparitor.mapping import DualPrincipalMapper
+
+    with pytest.raises(AuthZENConfigError, match="reserved"):
+        DualPrincipalMapper(make_config(), agent_subject=Subject(type="workload", id="svc-1"))
+
+
+def test_dual_principal_requires_request_scoped_user(make_config) -> None:
+    # The agent_id fallback must NOT apply to the user leg: that would collapse the
+    # AND into a single principal.
+    from apparitor.mapping import DualPrincipalMapper
+
+    mapper = DualPrincipalMapper(make_config(agent_id="travel-bot"))
+    with pytest.raises(AuthZENConfigError, match="request-scoped user subject"):
+        mapper.map(_call("read"), {})
