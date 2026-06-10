@@ -13,8 +13,10 @@ All notable changes to this project are documented here. The format follows
   `{type: "a2a_agent", id: <agent_label>}`, or `a2a_skill` with a `"<agent>/<skill>"` key
   via the `skill_resolver` hook — segments validated, skill kept verbatim). The subject is
   the server's **authenticated peer** (`Subject(type="agent", id=<user_name>)` by
-  default), falling back to host-injected subjects and the opt-in static `agent_id` —
-  an unauthenticated caller is refused. The request's A2A `tenant` is forwarded in the
+  default), falling back to a subject injected per request via
+  `ServerCallContext.state["subject"]` and then the opt-in static `agent_id` — an
+  unauthenticated caller is refused, and ambient contextvars are deliberately ignored
+  (the SDK's detached producer task snapshots them, so they go stale across turns). The request's A2A `tenant` is forwarded in the
   AuthZEN context for multi-tenant policies. Verdicts map fail-closed: only a clean
   `ALLOW` reaches the wrapped executor; everything else raises a deliberately generic A2A
   error (the rich reason stays in the operator log). `cancel` passes through ungated in
