@@ -71,7 +71,9 @@ __version__ = "0.0.1a0"
 
 if TYPE_CHECKING:
     # For type-checkers only; these runtime exports are lazy (see __getattr__ below) because
-    # each pulls an optional dependency (llamafirewall / cedarpy / nemoguardrails / fastmcp).
+    # each pulls an optional dependency (llamafirewall / cedarpy / nemoguardrails / fastmcp /
+    # a2a-sdk).
+    from .a2a import A2AAuthorizationExecutor
     from .cedar import CedarBackend
     from .fastmcp import FastMCPAuthorizationMiddleware
     from .nemo import NeMoAuthorizationRails
@@ -83,6 +85,7 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
     "AuthZENScanner",
     "NeMoAuthorizationRails",
     "FastMCPAuthorizationMiddleware",
+    "A2AAuthorizationExecutor",
     # config
     "ScannerConfig",
     "OnError",
@@ -145,9 +148,8 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
 def __getattr__(name: str) -> object:
     """Lazily expose the optional-dependency exports (PEP 562).
 
-    :class:`AuthZENScanner` pulls in LlamaFirewall, :class:`CedarBackend` pulls in cedarpy, and
-    :class:`NeMoAuthorizationRails` pulls in nemoguardrails; importing them lazily keeps a plain
-    ``import apparitor`` working without those extras.
+    Each branch below pulls an optional host/engine SDK; importing them lazily keeps a
+    plain ``import apparitor`` working without any extras installed.
     """
     if name == "AuthZENScanner":
         from .scanner import AuthZENScanner
@@ -165,4 +167,8 @@ def __getattr__(name: str) -> object:
         from .fastmcp import FastMCPAuthorizationMiddleware
 
         return FastMCPAuthorizationMiddleware
+    if name == "A2AAuthorizationExecutor":
+        from .a2a import A2AAuthorizationExecutor
+
+        return A2AAuthorizationExecutor
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
