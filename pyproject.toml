@@ -131,9 +131,10 @@ plugins = ["pydantic.mypy"]
 module = ["llamafirewall.*", "cedarpy.*", "nemoguardrails.*", "fastmcp.*", "mcp.*", "a2a.*"]
 ignore_missing_imports = true
 
-# apparitor.fastmcp subclasses fastmcp's Middleware, which is `Any` when fastmcp is absent
-# (lint env) but fully typed when present (the `fastmcp` CI job, local dev) — the
-# `type: ignore[misc]` on the class is required in the first case and unused in the second.
+# apparitor.fastmcp subclasses fastmcp's Middleware and apparitor.a2a subclasses the A2A
+# SDK's AgentExecutor — `Any` when the SDK is absent (lint env) but fully typed when present
+# (their CI jobs, local dev) — so the `type: ignore[misc]` on each class is required in the
+# first case and unused in the second.
 [[tool.mypy.overrides]]
 module = ["apparitor.fastmcp", "apparitor.a2a"]
 warn_unused_ignores = false
@@ -157,7 +158,7 @@ source = ["apparitor"]
 # (fastmcp) each depend on an optional extra and are covered by their own CI jobs (`scanner`,
 # `cedar`, `nemo`, `fastmcp`) that install the extra — not the default unit run, which must
 # import the package without those deps.
-omit = ["*/scanner.py", "*/cedar.py", "*/nemo.py", "*/fastmcp.py", "*/apparitor/a2a.py"]
+omit = ["*/scanner.py", "*/cedar.py", "*/nemo.py", "*/fastmcp.py", "*/a2a.py"]
 
 [tool.coverage.report]
 exclude_lines = [

@@ -211,13 +211,18 @@ jobs:
   a2a:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # The declared floor stays verified even after newer 1.x releases ship.
+        a2a-version: ["a2a-sdk[http-server]==1.1.*", "a2a-sdk[http-server]>=1.1,<2"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
-      - run: pip install -e ".[dev,a2a]" "a2a-sdk[http-server]>=1.1,<2"
+      - run: pip install -e ".[dev,a2a]" "${{ matrix.a2a-version }}"
       - name: Verify a2a imports
         run: python -c "import a2a, apparitor.a2a; print('a2a-sdk ok')"
       - name: Pytest (A2A executor adapter, with a2a-sdk)

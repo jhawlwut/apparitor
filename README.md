@@ -108,7 +108,8 @@ server composition pin `server_label` for stable policy keys. FastMCP never tear
 middleware down, so call `await middleware.aclose()` on shutdown to release the PDP client.
 
 At the **A2A boundary** the same engine guards agent-to-agent invocations — the subject
-is the authenticated peer the A2A server established (`pip install "apparitor[a2a]"`):
+is the authenticated peer the A2A server established, and the request's `tenant` is
+forwarded to policies as a claim to cross-check (`pip install "apparitor[a2a]"`):
 
 ```python
 from apparitor.a2a import A2AAuthorizationExecutor
