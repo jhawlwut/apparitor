@@ -204,6 +204,25 @@ jobs:
           APPARITOR_DEMO_REQUIRE_ALL: "1"
         run: python examples/three-peps/demo.py
 
+  # The A2A executor adapter's only hard dependency is a2a-sdk, so its end-to-end test runs
+  # in a dedicated job that installs the extra — keeping it out of the default [dev] run,
+  # like the scanner, cedar, nemo and fastmcp jobs. The SDK's own [http-server] extra powers
+  # the in-process JSON-RPC harness the tests drive.
+  a2a:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev,a2a]" "a2a-sdk[http-server]>=1.1,<2"
+      - name: Verify a2a imports
+        run: python -c "import a2a, apparitor.a2a; print('a2a-sdk ok')"
+      - name: Pytest (A2A executor adapter, with a2a-sdk)
+        run: pytest tests/unit/test_a2a_executor.py tests/unit/test_smoke.py -p no:cacheprovider --no-cov
+
   # Integration tests need real PDPs via Docker. Kept off the default path; auto-skips
   # via conftest when no daemon is present, so it never blocks the merge gate.
   integration:

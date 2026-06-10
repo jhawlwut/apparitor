@@ -71,7 +71,9 @@ __version__ = "0.0.1a0"
 
 if TYPE_CHECKING:
     # For type-checkers only; these runtime exports are lazy (see __getattr__ below) because
-    # each pulls an optional dependency (llamafirewall / cedarpy / nemoguardrails / fastmcp).
+    # each pulls an optional dependency (llamafirewall / cedarpy / nemoguardrails / fastmcp /
+    # a2a-sdk).
+    from .a2a import A2AAuthorizationExecutor
     from .cedar import CedarBackend
     from .fastmcp import FastMCPAuthorizationMiddleware
     from .nemo import NeMoAuthorizationRails
@@ -83,6 +85,7 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
     "AuthZENScanner",
     "NeMoAuthorizationRails",
     "FastMCPAuthorizationMiddleware",
+    "A2AAuthorizationExecutor",
     # config
     "ScannerConfig",
     "OnError",
@@ -165,4 +168,8 @@ def __getattr__(name: str) -> object:
         from .fastmcp import FastMCPAuthorizationMiddleware
 
         return FastMCPAuthorizationMiddleware
+    if name == "A2AAuthorizationExecutor":
+        from .a2a import A2AAuthorizationExecutor
+
+        return A2AAuthorizationExecutor
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
