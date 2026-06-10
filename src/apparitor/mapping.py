@@ -58,7 +58,12 @@ def request_context_attrs(request_context: Mapping[str, Any]) -> dict[str, Any] 
     """
     keys = ("conversation_id", "user_id", "correlation_id")
     ctx = {k: request_context[k] for k in keys if k in request_context}
-    return ctx or None
+    if not ctx:
+        return None
+    # Host-trusted but not necessarily JSON-typed (a UUID correlation id, say); coerce so
+    # downstream serialisation (the PDP body and the cache key) can never raise and crash
+    # the fail-closed path — same guarantee _json_safe gives tool arguments.
+    return _json_safe(ctx)
 
 
 @contextmanager
