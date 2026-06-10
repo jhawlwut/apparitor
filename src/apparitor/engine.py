@@ -199,6 +199,10 @@ class AuthorizationEngine:
             # the operator's only signal: no request was built, so no decision log follows.
             logger.warning("authzen: mapping failed, blocking (%s)", exc)
             return VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR), []
+        except Exception as exc:
+            # A buggy custom mapper must fail closed here exactly as it does on the
+            # per-item path — the engine never raises, never allows on error.
+            return self._fault_verdict(exc), []
 
         if not requests:  # every mapper abstained
             return VerdictResult(Verdict.SKIP, _SKIP_REASON, VerdictStatus.SKIPPED), []

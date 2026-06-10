@@ -156,8 +156,8 @@ with subject_scope(Subject(type="user", id="alice@acme.com")):
     result = await firewall.scan_async(assistant_message)
 ```
 
-**Level 2 — the agentic permission boundary (user ∧ agent).** Level 1 is the production
-floor; Level 2 is the recommended hardening when agent and user privileges differ. The
+**Level 2 — the agentic permission boundary (user ∧ agent).** Use Level 1 by default;
+add Level 2 when the agent's privileges must be narrower than its user's. The
 `DualPrincipalMapper` evaluates **two** decisions per call — the end user's grant *and*
 the agent's own boundary — and the call proceeds only when both allow. That is the
 evaluation semantics of a permission boundary: the agent can never exercise a permission

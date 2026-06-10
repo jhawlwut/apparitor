@@ -575,6 +575,24 @@ async def test_evaluate_each_raising_mapper_fails_closed(
 
 
 @pytest.mark.asyncio
+async def test_raising_mapper_fails_closed_on_aggregate_path(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    # The aggregate path must block on ANY mapper fault (not just config errors),
+    # mirroring evaluate_each — the engine never raises, never allows on error.
+    class BoomMapper:
+        def map(self, tool_call, request_context):
+            raise RuntimeError("mapper bug")
+
+    route = respx_mock.post(_EVAL_URL)
+    engine = _engine(make_config(), noop_sleep, mapper=BoomMapper())
+    result = await engine.evaluate_tool_calls([make_openai_call("read")])
+    assert result.verdict is Verdict.BLOCK
+    assert result.status is VerdictStatus.ERROR
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
 async def test_evaluate_each_metrics_fault_does_not_alter_verdicts(
     make_config, noop_sleep, respx_mock
 ) -> None:
