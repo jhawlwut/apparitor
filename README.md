@@ -30,8 +30,8 @@ policy rewrite. Apache-2.0, built entirely on public standards.
 > A2A executor — and the AuthZEN evaluation pipeline, working end-to-end against any
 > AuthZEN 1.0 PDP (OpenFGA, Cedar, OPA, Cerbos, Topaz) plus native OPA and in-process
 > Cedar backends, with 98% test coverage on the adapter-free core (see
-> [`CHANGELOG`](CHANGELOG.md)). **On the roadmap:** a native OpenFGA backend and a
-> dual-principal (user ∧ agent) mapper. APIs may change — see
+> [`CHANGELOG`](CHANGELOG.md)). **On the roadmap:** a native OpenFGA backend and the
+> code-exec enforcement point. APIs may change — see
 > [`docs/requirements.md`](docs/requirements.md) for the design and [`ROADMAP`](ROADMAP.md).
 
 ## The gap
@@ -132,9 +132,10 @@ Every decision needs a **subject** — the principal your policy is written agai
 never infers it from model or tool output (that would be a [confused
 deputy](https://en.wikipedia.org/wiki/Confused_deputy_problem)); the **host** supplies it,
 request-scoped, because the firewall layer sees messages, not an authenticated principal.
-There are two levels, and the same seam feeds every adapter (the LlamaFirewall scanner, the
-NeMo rail, the FastMCP middleware). At the MCP boundary the middleware fills this seam
-itself from the validated OAuth token — see the note below.
+There is a maturity ladder of three levels, and the same seam feeds every mapper-driven
+adapter (the LlamaFirewall scanner, the NeMo rail, the FastMCP middleware). At the MCP
+boundary the middleware fills this seam itself from the validated OAuth token — see the
+note below.
 
 **Level 0 — a static agent identity.** Set `agent_id`; every call is authorized as that
 agent. Enough for policies that don't depend on the end user — *"no agent may call a
@@ -154,6 +155,28 @@ from apparitor import Subject, subject_scope
 with subject_scope(Subject(type="user", id="alice@acme.com")):
     result = await firewall.scan_async(assistant_message)
 ```
+
+**Level 2 — the agentic permission boundary (user ∧ agent).** Level 1 is the production
+floor; Level 2 is the recommended hardening when agent and user privileges differ. The
+`DualPrincipalMapper` evaluates **two** decisions per call — the end user's grant *and*
+the agent's own boundary — and the call proceeds only when both allow. That is the
+evaluation semantics of a permission boundary: the agent can never exercise a permission
+its boundary denies, even when the human holds it — at every mapper-gated call (MCP
+resource reads/prompt gets and the A2A executor shape their own tuples and stay
+single-principal for now — [#39](https://github.com/jhawlwut/apparitor/issues/39)):
+
+```python
+from apparitor import DualPrincipalMapper, ScannerConfig
+
+config = ScannerConfig(pdp_url="https://pdp.internal", agent_id="travel-bot")
+scanner = AuthZENScanner(config=config, mapper=DualPrincipalMapper(config))
+# per request: subject_scope(user) supplies the user leg; "travel-bot" is the boundary
+```
+
+Unlike an in-policy `forbid` (the [three-peps demo](examples/three-peps/)'s deny-override,
+which works when one PDP holds all your policy), the dual mapper makes the boundary a
+**separate, separately-audited decision** that works across engines and policy stores.
+Cost: two decisions per call, sent as one batched PDP round trip.
 
 With neither a request-context `subject` nor `current_subject` set and no `agent_id`, the
 scan fails **closed**. Request-scoped attributes (`user_id`, `conversation_id`, …) can ride
