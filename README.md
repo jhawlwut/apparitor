@@ -25,12 +25,13 @@ standard, so the same wiring reaches the engines you already author policy in �
 **OpenFGA** (Zanzibar / ReBAC), **Cedar** (policy-as-code), and **OPA / Rego** — with no
 policy rewrite. Apache-2.0, built entirely on public standards.
 
-> **Status: `0.0.1a0` — pre-alpha.** **Shipping today:** three enforcement points — the
-> LlamaFirewall scanner, the NeMo Guardrails rail, and the FastMCP server middleware — and
-> the AuthZEN evaluation pipeline, working end-to-end against any AuthZEN 1.0 PDP
-> (OpenFGA, Cedar, OPA, Cerbos, Topaz) plus native OPA and in-process Cedar backends, with
-> 98% test coverage on the adapter-free core (see [`CHANGELOG`](CHANGELOG.md)). **On the
-> roadmap:** an A2A adapter and a native OpenFGA backend. APIs may change — see
+> **Status: `0.0.1a0` — pre-alpha.** **Shipping today:** four enforcement points — the
+> LlamaFirewall scanner, the NeMo Guardrails rail, the FastMCP server middleware, and the
+> A2A executor — and the AuthZEN evaluation pipeline, working end-to-end against any
+> AuthZEN 1.0 PDP (OpenFGA, Cedar, OPA, Cerbos, Topaz) plus native OPA and in-process
+> Cedar backends, with 98% test coverage on the adapter-free core (see
+> [`CHANGELOG`](CHANGELOG.md)). **On the roadmap:** a native OpenFGA backend and a
+> dual-principal (user ∧ agent) mapper. APIs may change — see
 > [`docs/requirements.md`](docs/requirements.md) for the design and [`ROADMAP`](ROADMAP.md).
 
 ## The gap
@@ -105,6 +106,19 @@ can additionally hide unauthorized tools from `tools/list` with `filter_listings
 be authorized as distinct `workload` subjects via `allow_workload_subject=True`. Under
 server composition pin `server_label` for stable policy keys. FastMCP never tears
 middleware down, so call `await middleware.aclose()` on shutdown to release the PDP client.
+
+At the **A2A boundary** the same engine guards agent-to-agent invocations — the subject
+is the authenticated peer the A2A server established, and the request's `tenant` is
+forwarded to policies as a claim to cross-check (`pip install "apparitor[a2a]"`):
+
+```python
+from apparitor.a2a import A2AAuthorizationExecutor
+
+guarded = A2AAuthorizationExecutor(
+    my_executor, pdp_url="https://pdp.internal", agent_label="travel-agent"
+)
+# hand `guarded` to DefaultRequestHandler in your executor's place
+```
 
 The AuthZEN client and models are **adapter-free** and usable on their own:
 
@@ -185,6 +199,7 @@ email), so treat the `apparitor` logger as sensitive and route it accordingly.
 | [**LlamaFirewall**](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall) | Meta | shipping (`AuthZENScanner`) |
 | [**NeMo Guardrails**](https://github.com/NVIDIA/NeMo-Guardrails) | NVIDIA | shipping (`NeMoAuthorizationRails`) |
 | [**FastMCP**](https://github.com/PrefectHQ/fastmcp) server middleware | Prefect | shipping (`FastMCPAuthorizationMiddleware`) |
+| [**A2A**](https://a2a-protocol.org/) agent executor | Linux Foundation | shipping (`A2AAuthorizationExecutor`) |
 
 **Policy engines** (where the authorization decision is made). apparitor reaches these over
 AuthZEN; OPA and Cedar also have native backends that skip the AuthZEN hop, selected by

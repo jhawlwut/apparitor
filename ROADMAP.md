@@ -78,12 +78,19 @@ aggregator across the popular agentic firewalls and policy engines.
   `allow_workload_subject` ([#33](https://github.com/jhawlwut/apparitor/issues/33)), ✅
   resource reads and prompts gated by default (actions `resource.read` / `prompt.get`,
   per-hook opt-outs) ([#34](https://github.com/jhawlwut/apparitor/issues/34)).
-- 🔜 **A2A adapter** — the same `subject/action/resource` question for agent-to-agent
-  calls (`action = invoke`, `resource = <target agent/skill>`); first non-firewall,
-  non-MCP surface.
+- ✅ **A2A executor** — the first non-firewall, non-MCP surface: every agent-to-agent
+  invocation is authorized before the wrapped `AgentExecutor` runs (`action =
+  agent.invoke`, `resource = <agent>` or `<agent>/<skill>` via `skill_resolver`), with the
+  subject taken from the server's **authenticated peer** (`apparitor.a2a`, optional
+  `[a2a]` extra). Task reads and `cancel` are HTTP/authn-middleware territory — the SDK
+  cancels the producer before `executor.cancel` runs, so the executor seam cannot gate
+  them; a task-status (`TASK_STATE_REJECTED`) refusal mode remains possible follow-up.
 - ✅ A three-PEP portability demo: one Cedar policy enforced identically at the scanner,
   the rail, and the MCP middleware (in-process Cedar backend, no Docker) —
   [`examples/three-peps/`](examples/three-peps/), gated by the `three-pep-demo` CI job.
+- 🔜 A **dual-principal (user ∧ agent) mapper** — authorize both the end user's grant
+  and the agent's own permission boundary in one decision, so "the agent inherited the
+  user's permissions" stops being possible by construction.
 - Keep the host-specific surface thin: only the adapter module may import a host SDK; the
   core stays standalone.
 
