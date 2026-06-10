@@ -45,13 +45,12 @@ Status legend: ✅ done · 🔜 next · 📋 planned.
 - Integration tests via testcontainers (Docker-gated; skip when absent).
 - Conformance against the vendored OpenID AuthZEN interop decisions dataset.
 
-**Remaining:** the **Amazon Verified Permissions** (managed Cedar) cloud example and the
-end-to-end scenario walk-through (deny / out-of-scope / allow / PDP-unreachable / batch).
+**Remaining:** the **Amazon Verified Permissions** (managed Cedar) cloud example.
 
 ## 📋 M4 — Hardening & first release
 
 - Independent security review against the threat model.
-- Documentation site; example scenarios as runnable demos.
+- Documentation site. ✅ Example scenarios as runnable demos (`examples/scenarios/`).
 - `0.1.0` release to PyPI via OIDC trusted publishing; SHA-pinned CI actions; SBOM /
   dependency audit.
 

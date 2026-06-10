@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Runnable scenario walk-through (`examples/scenarios/`).** Dependency-free (core install
+  only) self-asserting script over the mock PDP covering seven scenarios: allow, deny
+  (2-part deny key), unparseable input fails closed, PDP unreachable with `on_error=deny`,
+  PDP unreachable with `on_error=human_review`, batch all-or-nothing aggregation, and
+  dual-principal (user AND agent boundary) evaluation. Gated in CI by the `scenarios` job.
+  Also: the mock PDP now supports a subject-scoped **3-part deny form**
+  (`"<subject_id>:<action>:<resource_id>"`) in addition to the existing 2-part form.
 - **Dual-principal evaluation (`DualPrincipalMapper`).** Emits two requests per tool
   call — the end user's grant and the agent's own permission boundary — ANDed by the
   engine's all-allow-or-block aggregation, so an agent can never exercise a permission
@@ -150,7 +157,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Not yet implemented
 
-- Amazon Verified Permissions (cloud) example and the end-to-end scenario walk-through.
+- Amazon Verified Permissions (cloud) example.
 
 ## [0.0.1a0]
 - Initial pre-alpha scaffold.
