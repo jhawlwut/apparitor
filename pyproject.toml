@@ -74,6 +74,12 @@ nemo = ["nemoguardrails>=0.21,<0.23"]
 # must pin `server_label` for stable policy keys (see apparitor.fastmcp). Drop the 2.x leg and
 # raise the floor when that line stops receiving maintenance.
 fastmcp = ["fastmcp>=2.14,!=3.0.*,<4"]
+# A2A agent-executor adapter (apparitor.a2a) — the agent-to-agent PEP. Optional so the core
+# stays standalone — importing `apparitor.a2a` without it raises MissingDependencyError. The
+# adapter needs only the base SDK (AgentExecutor/RequestContext); serving over HTTP needs the
+# SDK's own [http-server] extra, which the `a2a` CI job installs for the end-to-end harness.
+# Floor 1.1 = the verified proto-first 1.x API; bump deliberately.
+a2a = ["a2a-sdk>=1.1,<2"]
 dev = [
   "pytest>=8",
   "pytest-asyncio>=0.23",
@@ -122,14 +128,14 @@ plugins = ["pydantic.mypy"]
 # LlamaFirewall, cedarpy and nemoguardrails ship no type stubs; fastmcp/mcp ship types but
 # may be absent in the lint environment.
 [[tool.mypy.overrides]]
-module = ["llamafirewall.*", "cedarpy.*", "nemoguardrails.*", "fastmcp.*", "mcp.*"]
+module = ["llamafirewall.*", "cedarpy.*", "nemoguardrails.*", "fastmcp.*", "mcp.*", "a2a.*"]
 ignore_missing_imports = true
 
 # apparitor.fastmcp subclasses fastmcp's Middleware, which is `Any` when fastmcp is absent
 # (lint env) but fully typed when present (the `fastmcp` CI job, local dev) — the
 # `type: ignore[misc]` on the class is required in the first case and unused in the second.
 [[tool.mypy.overrides]]
-module = ["apparitor.fastmcp"]
+module = ["apparitor.fastmcp", "apparitor.a2a"]
 warn_unused_ignores = false
 
 [tool.pytest.ini_options]
@@ -151,7 +157,7 @@ source = ["apparitor"]
 # (fastmcp) each depend on an optional extra and are covered by their own CI jobs (`scanner`,
 # `cedar`, `nemo`, `fastmcp`) that install the extra — not the default unit run, which must
 # import the package without those deps.
-omit = ["*/scanner.py", "*/cedar.py", "*/nemo.py", "*/fastmcp.py"]
+omit = ["*/scanner.py", "*/cedar.py", "*/nemo.py", "*/fastmcp.py", "*/apparitor/a2a.py"]
 
 [tool.coverage.report]
 exclude_lines = [

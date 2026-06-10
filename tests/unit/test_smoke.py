@@ -184,3 +184,18 @@ def test_config_rejects_unknown_fields_and_defaults_fail_closed() -> None:
     assert cfg.cache_enabled is False
     with pytest.raises(ValidationError):
         ScannerConfig(pdp_url="https://pdp.internal", bogus=1)  # type: ignore[call-arg]
+
+
+def test_a2a_adapter_without_a2a_sdk_raises_missing_dependency() -> None:
+    from apparitor.errors import MissingDependencyError
+
+    try:
+        import a2a  # noqa: F401
+    except ImportError:
+        with pytest.raises(MissingDependencyError):
+            importlib.import_module("apparitor.a2a")
+    else:
+        # a2a-sdk is installed; the module imports and exposes the executor adapter.
+        from apparitor.a2a import A2AAuthorizationExecutor
+
+        assert A2AAuthorizationExecutor.__name__ == "A2AAuthorizationExecutor"
