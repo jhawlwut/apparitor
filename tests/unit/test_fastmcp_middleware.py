@@ -616,3 +616,19 @@ async def test_filter_listings_uses_call_time_keys_under_mount(make_config, resp
     assert [tool.name for tool in tools] == ["files_read_file"]
     # Identical to the resource id the mounted-call test pins for on_call_tool.
     assert seen_ids == ["gateway/files_read_file"]
+
+
+@pytest.mark.asyncio
+async def test_prompt_name_whitespace_is_kept_verbatim(make_config, respx_mock) -> None:
+    # " greet " and "greet" are distinct FastMCP components; their policy keys must not
+    # collapse onto each other (an ALLOW for one would silently cover the other), so the
+    # name is consulted at the PDP verbatim rather than refused or trimmed.
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": False})
+    async with FastMCPAuthorizationMiddleware(config=make_config()) as guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                with pytest.raises(McpError, match="not authorized"):
+                    await client.get_prompt(" greet ", {})
+    assert route.call_count == 1
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["resource"]["id"] == "files/ greet "
