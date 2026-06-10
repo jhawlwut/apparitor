@@ -246,3 +246,25 @@ def test_dual_principal_requires_request_scoped_user(make_config) -> None:
     mapper = DualPrincipalMapper(make_config(agent_id="travel-bot"))
     with pytest.raises(AuthZENConfigError, match="request-scoped user subject"):
         mapper.map(_call("read"), {})
+
+
+def test_dual_principal_rejects_user_equal_to_agent(make_config) -> None:
+    # A "user" leg that IS the agent (e.g. an upstream static-subject fallback injecting
+    # the agent as the request subject) collapses the AND into one principal — refuse.
+    from apparitor.mapping import DualPrincipalMapper
+
+    mapper = DualPrincipalMapper(make_config(agent_id="travel-bot"))
+    with pytest.raises(AuthZENConfigError, match="distinct principals"):
+        mapper.map(_call("read"), {"subject": Subject(type="agent", id="travel-bot")})
+
+
+def test_dual_principal_warns_once_about_bypassed_cache(make_config, caplog) -> None:
+    # The opt-in ALLOW cache is a single-request fast path; dual evaluation always
+    # batches, so enabling both deserves a loud construction-time warning.
+    import logging
+
+    from apparitor.mapping import DualPrincipalMapper
+
+    with caplog.at_level(logging.WARNING, logger="apparitor"):
+        DualPrincipalMapper(make_config(agent_id="travel-bot", cache_enabled=True))
+    assert "never be consulted" in caplog.text

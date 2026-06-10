@@ -680,6 +680,7 @@ async def test_dual_principal_mapper_at_the_mcp_boundary(make_config, respx_mock
             async with Client(_server(guard)) as client:
                 with pytest.raises(ToolError, match="not authorized"):
                     await client.call_tool("read_file", {"path": "/tmp/a"})
+    assert route.call_count == 1  # both legs ride one batch round trip
     sent = json.loads(route.calls.last.request.content)
     subjects = [item["subject"]["id"] for item in sent["evaluations"]]
     assert subjects == ["alice@acme.com", "travel-bot"]
