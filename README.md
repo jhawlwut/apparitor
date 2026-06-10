@@ -176,7 +176,8 @@ scanner = AuthZENScanner(config=config, mapper=DualPrincipalMapper(config))
 Unlike an in-policy `forbid` (the [three-peps demo](examples/three-peps/)'s deny-override,
 which works when one PDP holds all your policy), the dual mapper makes the boundary a
 **separate, separately-audited decision** that works across engines and policy stores.
-Cost: two decisions per call, sent as one batched PDP round trip.
+Cost: two decisions per call, sent as one batched PDP round trip (the native OPA backend
+fans a batch out as one Data API query per leg).
 
 With neither a request-context `subject` nor `current_subject` set and no `agent_id`, the
 scan fails **closed**. Request-scoped attributes (`user_id`, `conversation_id`, …) can ride

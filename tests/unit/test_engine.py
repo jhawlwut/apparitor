@@ -613,7 +613,12 @@ def _alice():
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("user_ok", "agent_ok", "expected"),
-    [(True, True, Verdict.ALLOW), (True, False, Verdict.BLOCK), (False, True, Verdict.BLOCK)],
+    [
+        (True, True, Verdict.ALLOW),
+        (True, False, Verdict.BLOCK),
+        (False, True, Verdict.BLOCK),
+        (False, False, Verdict.BLOCK),
+    ],
 )
 async def test_dual_principal_truth_table(
     make_config, make_openai_call, noop_sleep, respx_mock, user_ok, agent_ok, expected
@@ -746,6 +751,76 @@ async def test_evaluate_each_groups_dual_legs_positionally(
     with _alice():
         results = await engine.evaluate_each(_normalized("read", "delete"))
     assert [r.verdict for r in results] == [Verdict.ALLOW, Verdict.BLOCK]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_group_denied_first_leg_blocks(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    # [F,T] must BLOCK: a denied first leg can never be overwritten by a later allow
+    # (catches a "combined = last leg" regression that [T,F] alone would let pass).
+    respx_mock.post(_BATCH_URL).respond(
+        json={
+            "evaluations": [
+                {"decision": False},
+                {"decision": True},
+                {"decision": True},
+                {"decision": True},
+            ]
+        }
+    )
+    engine = _dual_engine(make_config, noop_sleep)
+    with _alice():
+        results = await engine.evaluate_each(_normalized("delete", "read"))
+    assert [r.verdict for r in results] == [Verdict.BLOCK, Verdict.ALLOW]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_group_review_first_leg_escalates(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    # [review,T] must surface HUMAN_REVIEW for the group — escalation sticks even when a
+    # later leg is a clean allow.
+    respx_mock.post(_BATCH_URL).respond(
+        json={
+            "evaluations": [
+                {"decision": True, "context": {"step_up": True}},
+                {"decision": True},
+            ]
+        }
+    )
+    from apparitor.mapping import DualPrincipalMapper
+
+    config = make_config(agent_id="travel-bot")
+    engine = _engine(
+        config,
+        noop_sleep,
+        mapper=DualPrincipalMapper(config),
+        review_predicate=lambda ctx: bool(ctx.get("step_up")),
+    )
+    with _alice():
+        results = await engine.evaluate_each(_normalized("transfer"))
+    assert [r.verdict for r in results] == [Verdict.HUMAN_REVIEW]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_long_batch_fails_closed(make_config, noop_sleep, respx_mock) -> None:
+    # A non-conformant PDP returning MORE decisions than legs is just as untrustworthy as
+    # one returning fewer — every item must fail closed, not consume the extras.
+    respx_mock.post(_BATCH_URL).respond(
+        json={
+            "evaluations": [
+                {"decision": True},
+                {"decision": True},
+                {"decision": True},
+            ]
+        }
+    )
+    engine = _dual_engine(make_config, noop_sleep)
+    with _alice():
+        results = await engine.evaluate_each(_normalized("read"))
+    assert [r.verdict for r in results] == [Verdict.BLOCK]
+    assert results[0].status is VerdictStatus.ERROR
 
 
 @pytest.mark.asyncio

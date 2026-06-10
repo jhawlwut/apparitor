@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import logging
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -41,6 +42,8 @@ current_subject: contextvars.ContextVar[Subject | None] = contextvars.ContextVar
 current_request_context: contextvars.ContextVar[Mapping[str, Any] | None] = contextvars.ContextVar(
     "authzen_current_request_context", default=None
 )
+
+logger = logging.getLogger("apparitor")
 
 _REDACTED = "***redacted***"
 
@@ -237,11 +240,19 @@ class DualPrincipalMapper(DefaultToolCallMapper):
     or ``config.agent_id`` + ``config.subject_type``). Either principal being
     unresolvable fails closed.
 
-    Trade-offs: every call evaluates as a batch (two decisions, one PDP round trip), so
-    the opt-in ALLOW cache — a single-request fast path — is never consulted. At the MCP
-    boundary the mapper seam covers ``tools/call`` and listing filtering; resource reads
-    and prompt gets are adapter-shaped and stay single-principal (see
-    :mod:`apparitor.fastmcp`).
+    Trade-offs: every call evaluates as a batch — one batch call on the AuthZEN and
+    in-process Cedar backends, a per-leg fan-out on the native OPA backend — so the
+    opt-in ALLOW cache (a single-request fast path) is never consulted; construction
+    warns once when ``cache_enabled`` is set. The agent principal is fixed per mapper:
+    run one mapper (and engine) per agent — per-call agent identity in multi-agent
+    chains is out of scope. A resolved user equal to the agent principal fails closed
+    (it would collapse the AND — e.g. the FastMCP middleware's ``allow_static_subject``
+    injecting the same static agent as the user leg). If the user leg arrives as a
+    verified ``workload`` subject (see :mod:`apparitor.fastmcp`), the AND becomes
+    workload-grant ∧ agent-boundary — deliberate, the reservation only forbids *minting*
+    workload principals. At the MCP boundary the mapper seam covers ``tools/call`` and
+    listing filtering; resource reads and prompt gets are adapter-shaped and stay
+    single-principal (see :mod:`apparitor.fastmcp`).
     """
 
     def __init__(self, config: ScannerConfig, *, agent_subject: Subject | None = None) -> None:
@@ -258,6 +269,11 @@ class DualPrincipalMapper(DefaultToolCallMapper):
             # a static agent principal in that namespace would alias machine policies.
             raise AuthZENConfigError('subject type "workload" is reserved')
         self._agent_subject = agent_subject
+        if config.cache_enabled:
+            logger.warning(
+                "apparitor: dual-principal evaluation always batches, so the ALLOW cache"
+                " (cache_enabled=True) will never be consulted"
+            )
 
     def _resolve_user(self, request_context: Mapping[str, Any]) -> Subject:
         injected = request_context.get("subject")
@@ -278,13 +294,26 @@ class DualPrincipalMapper(DefaultToolCallMapper):
         request_context: Mapping[str, Any],
     ) -> Sequence[EvaluationRequest]:
         user = self._resolve_user(request_context)
+        if user.type == self._agent_subject.type and user.id == self._agent_subject.id:
+            # A user leg equal to the agent principal collapses the AND into one
+            # principal (e.g. an upstream static-subject fallback injecting the agent
+            # as the "user") — refuse rather than silently halve the check.
+            raise AuthZENConfigError(
+                "dual-principal evaluation requires distinct principals: the resolved"
+                f" user equals the agent subject ({user.type}:{user.id})"
+            )
         action = Action(name=self._config.action_name)
         resource = self._resource(tool_call, request_context)
         context = self._context(request_context)
         return [
             EvaluationRequest(subject=user, action=action, resource=resource, context=context),
             EvaluationRequest(
-                subject=self._agent_subject, action=action, resource=resource, context=context
+                subject=self._agent_subject,
+                action=action,
+                # Each leg gets its own resource instance so no future post-map hook can
+                # mutate both legs through one shared object.
+                resource=resource.model_copy(deep=True),
+                context=context,
             ),
         ]
 

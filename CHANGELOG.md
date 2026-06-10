@@ -19,11 +19,6 @@ All notable changes to this project are documented here. The format follows
 - `ToolCallMapper.map()` may now return a **sequence** of requests that must all be
   allowed (backward compatible; `None`/empty sequence abstains — an empty group can
   never read as an allow, on either the aggregate or the per-item path).
-
-### Changed
-- The structured decision log now records **every distinct principal** as `subjects=`
-  (was `subject=` with only the first leg) — under dual-principal evaluation the audit
-  trail must name both the user and the agent. Update log parsers.
 - **A2A agent-executor enforcement point (`apparitor.a2a`, optional `[a2a]` extra).**
   `A2AAuthorizationExecutor` wraps a deployment's `AgentExecutor` and authorizes every
   agent-to-agent invocation before it runs (action `agent.invoke`; resource
@@ -130,6 +125,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The structured decision log now records **every distinct principal** as `subjects=`
+  (was `subject=` with only the first leg) — under dual-principal evaluation the audit
+  trail must name both the user and the agent — and `resources=` / `fingerprints=`
+  carry one entry per evaluation request, so dual legs appear twice. Update log parsers.
+- `DefaultToolCallMapper.map()`'s return annotation is widened to the full
+  `ToolCallMapper` union; a typed subclass that delegates to `super().map()` must
+  accept the widened return (runtime behaviour of the default mapper is unchanged).
 - **Renamed to `apparitor` and repositioned.** The project is now a vendor-neutral
   authorization layer that aggregates policy engines (AuthZEN, Cedar, OpenFGA, Rego) across
   agentic firewalls (LlamaFirewall today; NeMo Guardrails planned), rather than an

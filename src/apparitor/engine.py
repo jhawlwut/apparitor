@@ -195,7 +195,9 @@ class AuthorizationEngine:
         try:
             requests = self._build_requests(tool_calls, ctx)
         except AuthZENConfigError as exc:
-            # Our misconfiguration (e.g. no subject) — fail closed, loudly.
+            # Our misconfiguration (e.g. no subject) — fail closed, loudly. The warning is
+            # the operator's only signal: no request was built, so no decision log follows.
+            logger.warning("authzen: mapping failed, blocking (%s)", exc)
             return VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR), []
 
         if not requests:  # every mapper abstained
@@ -228,11 +230,12 @@ class AuthorizationEngine:
         try:
             mapped = [_as_requests(self._mapper.map(call, ctx)) for call in calls]
         except Exception as exc:  # incl. AuthZENConfigError — a mapper fault blocks every item
-            failed = (
-                VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR)
-                if isinstance(exc, AuthZENConfigError)
-                else self._fault_verdict(exc)
-            )
+            if isinstance(exc, AuthZENConfigError):
+                # No requests were built, so no decision log follows — warn or it's invisible.
+                logger.warning("authzen: mapping failed, blocking all items (%s)", exc)
+                failed = VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR)
+            else:
+                failed = self._fault_verdict(exc)
             return [failed] * len(calls)
 
         # Abstained items (None or an EMPTY group — all([]) must never read as allow)
@@ -344,6 +347,16 @@ class AuthorizationEngine:
         response = await self._client.evaluate_batch(batch)
         decisions = [item.decision for item in response.evaluations]
         verdict = aggregate(decisions, expected=len(requests))
+        if verdict is not Verdict.ALLOW:
+            # The aggregate hides which leg denied — name them (principal/action/resource
+            # ids only, never arguments) so an operator can tell a user-grant deny from an
+            # agent-boundary deny without replaying the batch against the PDP.
+            denied = [
+                f"{r.subject.type}:{r.subject.id} {r.action.name} {r.resource.id}"
+                for r, item in zip(requests, response.evaluations, strict=True)
+                if not item.decision
+            ]
+            logger.info("authzen batch denied_legs=%s", denied)
         # Apply the review predicate per item and escalate the aggregate (escalation can
         # never downgrade a BLOCK), so HUMAN_REVIEW is reachable on multi-call messages too.
         if any(self._wants_review(item.context) for item in response.evaluations):
@@ -388,8 +401,9 @@ def _as_requests(
 ) -> list[EvaluationRequest]:
     """Normalise a mapper's return — single request, sequence, or abstention — to a list.
 
-    Only real sequences are materialised (the protocol says ``Sequence``, not iterator,
-    so a one-shot generator can never be silently half-consumed across retries).
+    The contract is ``Sequence`` (re-iterable); the return is materialised to a fresh list
+    here, in one place, so even a non-conforming one-shot iterator gets consumed exactly
+    once up front rather than silently half-read somewhere downstream.
     """
     if mapped is None:
         return []
