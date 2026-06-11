@@ -37,11 +37,16 @@ jobs:
   # PyPI even if the build artifact was produced before the fault was introduced.
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
       - name: Ruff (lint)
@@ -68,7 +73,7 @@ jobs:
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
 
   # Attach the CycloneDX SBOM to the GitHub Release so it is durable and discoverable next to
   # the release, not a transient build artifact. Tagged releases only — a workflow_dispatch
@@ -76,7 +81,7 @@ jobs:
   # dependency) with the minimum `contents: write` scope, isolated to this job.
   release-assets:
     name: Attach SBOM to Release
-    needs: build
+    needs: [build, test]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
