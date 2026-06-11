@@ -33,14 +33,14 @@ if TYPE_CHECKING:
 #: is invoked; the default mapper reads it here. Prefer :func:`subject_scope` over calling
 #: ``.set()`` directly so the value can never leak across requests on a reused task/loop.
 current_subject: contextvars.ContextVar[Subject | None] = contextvars.ContextVar(
-    "authzen_current_subject", default=None
+    "apparitor_current_subject", default=None
 )
 
 #: Request-scoped enrichment context (``conversation_id`` / ``user_id`` / ``correlation_id``
 #: and, optionally, a trusted ``subject``). MUST contain only host-trusted, out-of-band data
 #: — never anything derived from model/tool output (that would be a confused-deputy).
 current_request_context: contextvars.ContextVar[Mapping[str, Any] | None] = contextvars.ContextVar(
-    "authzen_current_request_context", default=None
+    "apparitor_current_request_context", default=None
 )
 
 logger = logging.getLogger("apparitor")

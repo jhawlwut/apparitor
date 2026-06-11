@@ -68,7 +68,9 @@ with subject_scope(Subject(type="user", id=authenticated_user_id)):
 Attach request-scoped enrichment via `current_request_context`: `user_id`, `conversation_id`,
 and `correlation_id` are forwarded to the PDP as AuthZEN `context` for policy conditions. (A
 `subject` placed here is instead used to resolve the request's subject — see the order above —
-not forwarded as context.)
+not forwarded as context.) The `correlation_id` value also appears verbatim in the C1 audit
+log line — see [audit-log.md](audit-log.md) for the full log schema and stability
+contract.
 
 ```python
 from apparitor.mapping import current_request_context
