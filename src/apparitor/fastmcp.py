@@ -81,10 +81,11 @@ from .adapters import NormalizedToolCall
 from .config import ScannerConfig
 from .decision import Verdict, VerdictResult, VerdictStatus
 from .engine import AuthorizationEngine, ReviewPredicate
-from .errors import MissingDependencyError
+from .errors import AuthZENConfigError, MissingDependencyError
 from .mapping import (
     MCP_SERVER_LABEL_KEY,
     MCPResourceMapper,
+    build_boundary_leg,
     current_request_context,
     current_subject,
     request_context_attrs,
@@ -138,6 +139,14 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
     Construct it like the other adapters — a ``pdp_url`` or a full :class:`ScannerConfig` —
     then ``server.add_middleware(...)``. A subject must be resolvable (validated token,
     host-injected subject, or the opt-in static fallback) or the call is refused.
+
+    ``boundary_subject`` is **deployment-time** only, never per-request. When set, every
+    ``resources/read`` and ``prompts/get`` request is evaluated as a two-request batch —
+    the resolved caller leg AND the boundary leg — using the same AND/all-allow-or-block
+    semantics as :class:`~apparitor.mapping.DualPrincipalMapper`. It does **not** cover
+    ``tools/call`` or listing — use ``mapper=DualPrincipalMapper(config)`` for those; a full
+    deployment sets both. Set it when the serving agent's own permission boundary must be
+    enforced on resource/prompt access regardless of what the caller is permitted.
     """
 
     def __init__(
@@ -153,6 +162,7 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
         filter_listings: bool = False,
         gate_resources: bool = True,
         gate_prompts: bool = True,
+        boundary_subject: Subject | None = None,
         mapper: ToolCallMapper | None = None,
         http_client: httpx.AsyncClient | None = None,
         review_predicate: ReviewPredicate | None = None,
@@ -169,6 +179,10 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
             allow_static_subject and config.subject_type == "workload"
         ):
             raise ValueError('subject type "workload" is reserved for allow_workload_subject')
+        if boundary_subject is not None and boundary_subject.type == "workload":
+            # Reserved for verified client-credentials tokens (see above);
+            # a static boundary principal in that namespace would alias machine policies.
+            raise ValueError('subject type "workload" is reserved')
         self._config = config
         self._server_label = server_label
         self._subject_type = subject_type
@@ -178,6 +192,7 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
         self._filter_listings = filter_listings
         self._gate_resources = gate_resources
         self._gate_prompts = gate_prompts
+        self._boundary_subject = boundary_subject
         from .backends import build_backend
 
         backend = build_backend(config, http_client=http_client)
@@ -188,12 +203,20 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
             review_predicate=review_predicate,
             metrics=metrics,
         )
+        if boundary_subject is not None and config.cache_enabled:
+            logger.warning(
+                "apparitor: dual-principal evaluation always batches, so the ALLOW cache"
+                " (cache_enabled=True) will never be consulted"
+            )
         # One line an operator can find when diagnosing "why is X denied after upgrade".
         logger.info(
-            "apparitor: FastMCP middleware gating tools/call%s%s%s",
+            "apparitor: FastMCP middleware gating tools/call%s%s%s%s",
             ", resources/read" if gate_resources else "",
             ", prompts/get" if gate_prompts else "",
             "; filtering tools/list" if filter_listings else "",
+            f"; boundary={boundary_subject.type}:{boundary_subject.id}"
+            if boundary_subject is not None
+            else "",
         )
 
     @property
@@ -314,13 +337,25 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
         shape: Callable[[MiddlewareContext[Any], dict[str, Any]], EvaluationRequest | None],
     ) -> VerdictResult | None:
         """Evaluate an adapter-shaped request; ``None`` refuses without a PDP trip
-        (no resolvable subject, or ``shape`` could not build a sound policy key)."""
+        (no resolvable subject, or ``shape`` could not build a sound policy key).
+        When boundary_subject is set the caller leg and boundary leg are sent as one
+        batch; AuthZENConfigError from the collapse guard logs a WARNING and maps to
+        the generic refusal path (reason in operator log only)."""
         ctx = self._request_context(context)
         if ctx is None:
             return None
         request = shape(context, ctx)
         if request is None:
             return None
+        if self._boundary_subject is not None:
+            try:
+                boundary_leg = build_boundary_leg(
+                    request, self._boundary_subject, caller_subject=request.subject
+                )
+            except AuthZENConfigError as exc:
+                logger.warning("apparitor: boundary collapse guard refused: %s", exc)
+                return None
+            return await self._engine.evaluate_requests([request, boundary_leg])
         return await self._engine.evaluate_requests([request])
 
     async def _visible_tools(self, context: MiddlewareContext[Any], names: list[str]) -> set[str]:

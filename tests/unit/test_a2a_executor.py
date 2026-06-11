@@ -543,3 +543,187 @@ async def test_authenticated_but_nameless_user_refuses(make_config) -> None:
             await _send(client)
     assert delegate.executed == 0
     assert pdp.requests == []
+
+
+# --- dual-principal boundary (boundary_subject) tests --------------------------------
+
+
+class _BatchPDP:
+    """Mock PDP that handles both single and batch evaluation endpoints.
+
+    Batch responses carry per-leg decisions, keyed by subject id.
+    Single-evaluation responses use a fixed decision.
+    """
+
+    def __init__(self, decisions_by_subject: dict[str, bool] | None = None) -> None:
+        self.requests: list[dict[str, Any]] = []
+        self._decisions = decisions_by_subject or {}
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        self.requests.append(body)
+        if "evaluations" in body:
+            # Batch path: return per-leg decisions.
+            evals = [
+                {"decision": self._decisions.get(item["subject"]["id"], True)}
+                for item in body["evaluations"]
+            ]
+            return httpx.Response(200, json={"evaluations": evals})
+        # Single path.
+        subject_id = body.get("subject", {}).get("id", "")
+        decision = self._decisions.get(subject_id, True)
+        return httpx.Response(200, json={"decision": decision})
+
+    def client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(self.handler))
+
+
+def _guarded_with_boundary(
+    delegate: AgentExecutor,
+    pdp: _BatchPDP,
+    make_config: Any,
+    boundary_subject: Any,
+    **kwargs: Any,
+) -> A2AAuthorizationExecutor:
+    return A2AAuthorizationExecutor(
+        delegate,
+        config=make_config(agent_id=None, max_retries=0),
+        agent_label="travel-agent",
+        boundary_subject=boundary_subject,
+        http_client=pdp.client(),
+        **kwargs,
+    )
+
+
+_BOUNDARY = Subject(type="agent", id="travel-bot")
+
+
+@pytest.mark.asyncio
+async def test_boundary_both_allow_executes(make_config) -> None:
+    # Both caller and boundary allow → delegate runs.
+    pdp = _BatchPDP({"planner-agent": True, "travel-bot": True})
+    delegate = _EchoExecutor()
+    guard = _guarded_with_boundary(delegate, pdp, make_config, _BOUNDARY)
+    client = _a2a_client(guard, _ContextBuilder(user=_Peer("planner-agent")))
+    async with guard:
+        await _send(client)
+    assert delegate.executed == 1
+    assert len(pdp.requests) == 1  # one batch round trip
+
+
+@pytest.mark.asyncio
+async def test_boundary_caller_deny_refuses(make_config) -> None:
+    # Caller denied, boundary allowed → refused.
+    pdp = _BatchPDP({"planner-agent": False, "travel-bot": True})
+    delegate = _EchoExecutor()
+    guard = _guarded_with_boundary(delegate, pdp, make_config, _BOUNDARY)
+    client = _a2a_client(guard, _ContextBuilder(user=_Peer("planner-agent")))
+    async with guard:
+        with pytest.raises(Exception, match="not authorized"):
+            await _send(client)
+    assert delegate.executed == 0
+
+
+@pytest.mark.asyncio
+async def test_boundary_boundary_deny_refuses(make_config) -> None:
+    # Caller allowed, boundary denied → refused even though caller's grant is valid.
+    pdp = _BatchPDP({"planner-agent": True, "travel-bot": False})
+    delegate = _EchoExecutor()
+    guard = _guarded_with_boundary(delegate, pdp, make_config, _BOUNDARY)
+    client = _a2a_client(guard, _ContextBuilder(user=_Peer("planner-agent")))
+    async with guard:
+        with pytest.raises(Exception, match="not authorized"):
+            await _send(client)
+    assert delegate.executed == 0
+
+
+@pytest.mark.asyncio
+async def test_boundary_both_deny_refuses(make_config) -> None:
+    pdp = _BatchPDP({"planner-agent": False, "travel-bot": False})
+    delegate = _EchoExecutor()
+    guard = _guarded_with_boundary(delegate, pdp, make_config, _BOUNDARY)
+    client = _a2a_client(guard, _ContextBuilder(user=_Peer("planner-agent")))
+    async with guard:
+        with pytest.raises(Exception, match="not authorized"):
+            await _send(client)
+    assert delegate.executed == 0
+
+
+@pytest.mark.asyncio
+async def test_boundary_batch_wire_format(make_config) -> None:
+    # The batch must carry exactly two evaluations: caller first, boundary second,
+    # and both legs must share the same tenant context.
+    pdp = _BatchPDP({"planner-agent": True, "travel-bot": True})
+    delegate = _EchoExecutor()
+    guard = _guarded_with_boundary(delegate, pdp, make_config, _BOUNDARY)
+    client = _a2a_client(guard, _ContextBuilder(user=_Peer("planner-agent")))
+    async with guard:
+        await _send(client, tenant="acme")
+    sent = pdp.requests[0]
+    assert "evaluations" in sent
+    evals = sent["evaluations"]
+    assert len(evals) == 2
+    assert evals[0]["subject"]["id"] == "planner-agent"
+    assert evals[1]["subject"]["id"] == "travel-bot"
+    # Both legs carry the same tenant context (Amendment 1).
+    assert evals[0].get("context", {}).get("tenant") == "acme"
+    assert evals[1].get("context", {}).get("tenant") == "acme"
+
+
+@pytest.mark.asyncio
+async def test_boundary_collapse_guard_refuses_without_pdp(make_config, caplog) -> None:
+    # When boundary == resolved caller the AND collapses; must refuse before any PDP call.
+    import logging
+
+    pdp = _BatchPDP({"planner-agent": True})
+    delegate = _EchoExecutor()
+    guard = _guarded_with_boundary(
+        delegate, pdp, make_config, Subject(type="agent", id="planner-agent")
+    )
+    client = _a2a_client(guard, _ContextBuilder(user=_Peer("planner-agent")))
+    with caplog.at_level(logging.WARNING, logger="apparitor"):
+        async with guard:
+            with pytest.raises(Exception, match="not authorized"):
+                await _send(client)
+    assert delegate.executed == 0
+    assert pdp.requests == []
+    assert "collapse" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_boundary_unresolvable_caller_refuses_without_pdp(make_config) -> None:
+    # Unresolvable caller still refuses before any PDP trip even when boundary is set.
+    pdp = _BatchPDP()
+    delegate = _EchoExecutor()
+    guard = _guarded_with_boundary(delegate, pdp, make_config, _BOUNDARY)
+    client = _a2a_client(guard)  # no authenticated user, no static subject
+    async with guard:
+        with pytest.raises(Exception, match="not authorized"):
+            await _send(client)
+    assert delegate.executed == 0
+    assert pdp.requests == []
+
+
+def test_boundary_workload_subject_rejected_at_construction(make_config) -> None:
+    with pytest.raises(ValueError, match="reserved"):
+        A2AAuthorizationExecutor(
+            _EchoExecutor(),
+            config=make_config(agent_id=None, max_retries=0),
+            agent_label="travel-agent",
+            boundary_subject=Subject(type="workload", id="svc-1"),
+            http_client=_BatchPDP().client(),
+        )
+
+
+def test_boundary_cache_warning_emitted(make_config, caplog) -> None:
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="apparitor"):
+        A2AAuthorizationExecutor(
+            _EchoExecutor(),
+            config=make_config(agent_id=None, max_retries=0, cache_enabled=True),
+            agent_label="travel-agent",
+            boundary_subject=_BOUNDARY,
+            http_client=_BatchPDP().client(),
+        )
+    assert "never be consulted" in caplog.text
