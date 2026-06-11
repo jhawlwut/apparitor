@@ -103,7 +103,7 @@ aggregator across the popular agentic firewalls and policy engines.
 - Keep the host-specific surface thin: only the adapter module may import a host SDK; the
   core stays standalone.
 
-### 🔜 Native policy-engine adapters (skip the AuthZEN hop)
+### ✅ / 🔜 Native policy-engine adapters (skip the AuthZEN hop)
 
 - A pluggable **decision-backend** interface so a deployment selects its engine by config
   (`ScannerConfig(backend=...)`), reusing one hardened transport (SSRF guard, TLS, bounded
