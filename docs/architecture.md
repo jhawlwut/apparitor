@@ -57,21 +57,28 @@ LlamaFirewall → Agent  : blocked — tool not dispatched
 
 ## Module boundaries
 
-| Module | Imports LlamaFirewall? | Responsibility |
+| Module | Optional dep | Responsibility |
 | --- | --- | --- |
-| `scanner.py` | **yes** (only here) | `Scanner` subclass; pipeline orchestration; decision→`ScanResult` |
-| `client.py` | no | AuthZEN transport + wire shape; retries; budget; httpx lifecycle |
-| `models.py` | no | pydantic AuthZEN request/response models |
-| `adapters.py` | no | provider-aware tool-call normalisation |
-| `mapping.py` | no | `ToolCallMapper` seam; subject `ContextVar`; MCP resource ids |
-| `cache.py` | no | opt-in ALLOW-only TTL cache + key derivation |
-| `config.py` | no | `ScannerConfig` (pydantic) + `OnError` enum |
-| `errors.py` | no | exception hierarchy (httpx mapped here) |
+| `scanner.py` | `llamafirewall` | `Scanner` subclass; pipeline orchestration; decision→`ScanResult` |
+| `engine.py` | — | firewall-free pipeline orchestration (extract → map → evaluate → decide); `AuthorizationEngine` |
+| `decision.py` | — | pure verdict vocabulary (`Verdict`, `VerdictResult`) and decision/aggregation/error logic |
+| `backends.py` | — | `DecisionBackend` protocol; `build_backend` factory; `OPABackend` (Data API) |
+| `client.py` | — | hardened HTTP transport (`HTTPDecisionTransport`); AuthZEN wire shape; retries; budget |
+| `models.py` | — | pydantic AuthZEN 1.0 request/response models |
+| `adapters.py` | — | provider-aware tool-call normalisation (OpenAI / Anthropic / LangChain) |
+| `mapping.py` | — | `ToolCallMapper` seam; subject `ContextVar`; `DualPrincipalMapper`; MCP resource ids |
+| `cache.py` | — | opt-in ALLOW-only TTL cache + SHA-256 key derivation |
+| `metrics.py` | — | `MetricsSink` protocol; `InMemoryMetrics` (latency histogram, decision/cache counters) |
+| `config.py` | — | `ScannerConfig` (pydantic) + `OnError` / `Backend` enums |
+| `errors.py` | — | exception hierarchy; httpx exceptions mapped here |
+| `cedar.py` | `cedarpy` | in-process Cedar backend; policies/entities loaded at construction; fail-closed |
+| `nemo.py` | `nemoguardrails` | NeMo Guardrails rail adapter (`NeMoAuthorizationRails`); same engine as scanner |
+| `fastmcp.py` | `fastmcp` | FastMCP server middleware (`FastMCPAuthorizationMiddleware`); subject from OAuth token |
+| `a2a.py` | `a2a-sdk` | A2A agent-executor adapter (`A2AAuthorizationExecutor`); subject from authenticated peer |
 
-The single LlamaFirewall import lives at the top of `scanner.py` behind an `ImportError`
-guard that re-raises `MissingDependencyError`. `apparitor.__init__` exposes
-`AuthZENScanner` lazily (PEP 562 `__getattr__`) so `import apparitor` succeeds
-without LlamaFirewall.
+Each optional-dep module is isolated so the core imports without it; missing deps raise
+`MissingDependencyError`. `apparitor.__init__` exposes `AuthZENScanner` lazily (PEP 562
+`__getattr__`) so `import apparitor` succeeds without LlamaFirewall.
 
 ## Registration
 
