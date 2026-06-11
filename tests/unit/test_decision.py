@@ -7,9 +7,12 @@ import pytest
 from apparitor.config import OnError
 from apparitor.decision import (
     Verdict,
+    VerdictResult,
     VerdictStatus,
     aggregate,
     escalate,
+    is_allowed_gateway,
+    is_allowed_inline,
     map_single,
     resolve_error,
 )
@@ -66,8 +69,69 @@ def test_resolve_error(on_error: OnError, expected: Verdict) -> None:
 
 
 def test_scores() -> None:
-    from apparitor.decision import VerdictResult
-
     assert VerdictResult(Verdict.ALLOW, "x").score == 0.0
     assert VerdictResult(Verdict.BLOCK, "x").score == 1.0
     assert 0.0 < VerdictResult(Verdict.HUMAN_REVIEW, "x").score < 1.0
+
+
+# --- is_allowed_inline (in-runtime adapters: scanner, NeMo) -------------------------
+
+
+@pytest.mark.parametrize(
+    ("verdict", "status", "expected"),
+    [
+        # Clean ALLOW and SKIP both authorize on in-runtime adapters: SKIP means
+        # "nothing to gate" (no tool calls in the message), not "mapper abstained".
+        (Verdict.ALLOW, VerdictStatus.SUCCESS, True),
+        (Verdict.SKIP, VerdictStatus.SKIPPED, True),
+        # All blocking and error verdicts must not authorize.
+        (Verdict.BLOCK, VerdictStatus.SUCCESS, False),
+        (Verdict.HUMAN_REVIEW, VerdictStatus.SUCCESS, False),
+        # ERROR status overrides the verdict — ALLOW/SKIP with ERROR must not authorize,
+        # because the authorization check itself was compromised.
+        (Verdict.ALLOW, VerdictStatus.ERROR, False),
+        (Verdict.SKIP, VerdictStatus.ERROR, False),
+        (Verdict.BLOCK, VerdictStatus.ERROR, False),
+        (Verdict.HUMAN_REVIEW, VerdictStatus.ERROR, False),
+    ],
+)
+def test_is_allowed_inline(verdict: Verdict, status: VerdictStatus, expected: bool) -> None:
+    result = VerdictResult(verdict=verdict, reason="test", status=status)
+    assert is_allowed_inline(result) is expected
+
+
+# --- is_allowed_gateway (boundary adapters: FastMCP middleware, A2A executor) --------
+
+
+@pytest.mark.parametrize(
+    ("verdict", "status", "expected"),
+    [
+        # Only a clean ALLOW authorizes at a network boundary.  A SKIP at a gateway
+        # means the mapper abstained on a submitted call — executing anyway is a bypass.
+        (Verdict.ALLOW, VerdictStatus.SUCCESS, True),
+        (Verdict.SKIP, VerdictStatus.SKIPPED, False),
+        (Verdict.BLOCK, VerdictStatus.SUCCESS, False),
+        (Verdict.HUMAN_REVIEW, VerdictStatus.SUCCESS, False),
+        # ERROR status overrides the verdict.
+        (Verdict.ALLOW, VerdictStatus.ERROR, False),
+        (Verdict.SKIP, VerdictStatus.ERROR, False),
+        (Verdict.BLOCK, VerdictStatus.ERROR, False),
+        (Verdict.HUMAN_REVIEW, VerdictStatus.ERROR, False),
+    ],
+)
+def test_is_allowed_gateway(verdict: Verdict, status: VerdictStatus, expected: bool) -> None:
+    result = VerdictResult(verdict=verdict, reason="test", status=status)
+    assert is_allowed_gateway(result) is expected
+
+
+def test_inline_and_gateway_diverge_only_on_skip() -> None:
+    """SKIP is the sole divergence point: inline passes it, gateway refuses it.
+
+    This test pins the contract so a future edit cannot silently unify the two helpers
+    and introduce a bypass (gateway) or an unwarranted refusal (inline).
+    """
+    skip_result = VerdictResult(
+        verdict=Verdict.SKIP, reason="no calls", status=VerdictStatus.SKIPPED
+    )
+    assert is_allowed_inline(skip_result) is True  # pass-through: nothing to gate
+    assert is_allowed_gateway(skip_result) is False  # refuse: mapper abstained on submitted call
