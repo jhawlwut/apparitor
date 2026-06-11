@@ -161,9 +161,10 @@ add Level 2 when the agent's privileges must be narrower than its user's. The
 `DualPrincipalMapper` evaluates **two** decisions per call — the end user's grant *and*
 the agent's own boundary — and the call proceeds only when both allow. That is the
 evaluation semantics of a permission boundary: the agent can never exercise a permission
-its boundary denies, even when the human holds it — at every mapper-gated call (MCP
-resource reads/prompt gets and the A2A executor shape their own tuples and stay
-single-principal for now — [#39](https://github.com/jhawlwut/apparitor/issues/39)):
+its boundary denies, even when the human holds it — at every mapper-gated call. The A2A
+executor and the FastMCP `resources/read` / `prompts/get` paths use `boundary_subject`
+instead (the mapper seam does not reach them); for FastMCP tools and listing use
+`mapper=DualPrincipalMapper(config)` — a full deployment sets both:
 
 ```python
 from apparitor import DualPrincipalMapper, ScannerConfig
@@ -177,7 +178,10 @@ Unlike an in-policy `forbid` (the [three-peps demo](examples/three-peps/)'s deny
 which works when one PDP holds all your policy), the dual mapper makes the boundary a
 **separate, separately-audited decision** that works across engines and policy stores.
 Cost: two decisions per call, sent as one batched PDP round trip (the native OPA backend
-fans a batch out as one Data API query per leg).
+fans a batch out as one Data API query per leg). When `boundary_subject` is used instead
+of the mapper (A2A `agent.invoke`, FastMCP `resources/read`, `prompts/get`): two decisions
+per gated invoke / resources-read / prompts-get, sent as one batched PDP round trip (and
+the ALLOW cache is not consulted).
 
 With neither a request-context `subject` nor `current_subject` set and no `agent_id`, the
 scan fails **closed**. Request-scoped attributes (`user_id`, `conversation_id`, …) can ride

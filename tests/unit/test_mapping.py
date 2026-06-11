@@ -268,3 +268,62 @@ def test_dual_principal_warns_once_about_bypassed_cache(make_config, caplog) -> 
     with caplog.at_level(logging.WARNING, logger="apparitor"):
         DualPrincipalMapper(make_config(agent_id="travel-bot", cache_enabled=True))
     assert "never be consulted" in caplog.text
+
+
+# --- build_boundary_leg ---------------------------------------------------------------
+
+
+def test_build_boundary_leg_returns_boundary_subject_with_same_action_and_context() -> None:
+    from apparitor.mapping import build_boundary_leg
+    from apparitor.models import Action, EvaluationRequest, Resource
+
+    caller = Subject(type="agent", id="planner")
+    boundary = Subject(type="agent", id="travel-bot")
+    primary = EvaluationRequest(
+        subject=caller,
+        action=Action(name="agent.invoke"),
+        resource=Resource(type="a2a_agent", id="demo"),
+        context={"tenant": "acme"},
+    )
+    leg = build_boundary_leg(primary, boundary, caller_subject=caller)
+    assert leg.subject == boundary
+    assert leg.action == primary.action
+    # Both legs carry the same context VALUE (equal dicts at the PDP; pydantic copies on
+    # construction) — the A2A tenant context must reach both the caller and boundary leg.
+    assert leg.context == primary.context
+
+
+def test_build_boundary_leg_deep_copies_resource() -> None:
+    # Mutating the boundary leg's resource must not affect the primary leg (and vice versa).
+    from apparitor.mapping import build_boundary_leg
+    from apparitor.models import Action, EvaluationRequest, Resource
+
+    caller = Subject(type="user", id="alice")
+    boundary = Subject(type="agent", id="travel-bot")
+    primary = EvaluationRequest(
+        subject=caller,
+        action=Action(name="resource.read"),
+        resource=Resource(type="mcp_resource", id="resource://config", properties={"k": "v"}),
+        context=None,
+    )
+    leg = build_boundary_leg(primary, boundary, caller_subject=caller)
+    assert leg.resource is not primary.resource
+    leg.resource.properties["k"] = "mutated"
+    assert primary.resource.properties["k"] == "v"
+
+
+def test_build_boundary_leg_collapse_guard_raises() -> None:
+    # The AND would silently collapse to a single-principal check when both legs have
+    # the same subject — refuse rather than let a misconfiguration go unnoticed.
+    from apparitor.mapping import build_boundary_leg
+    from apparitor.models import Action, EvaluationRequest, Resource
+
+    same = Subject(type="agent", id="travel-bot")
+    primary = EvaluationRequest(
+        subject=same,
+        action=Action(name="agent.invoke"),
+        resource=Resource(type="a2a_agent", id="demo"),
+        context=None,
+    )
+    with pytest.raises(AuthZENConfigError, match="distinct"):
+        build_boundary_leg(primary, same, caller_subject=same)
