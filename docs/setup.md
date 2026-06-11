@@ -153,11 +153,13 @@ from apparitor import AuthZENScanner, ScannerConfig
 scanner = AuthZENScanner(
     config=ScannerConfig(
         backend="opa",
-        pdp_url="http://opa.internal:8181",
+        pdp_url="https://opa.internal:8181",
         opa_decision_path="myorg/authz/allow",
     )
 )
 ```
+
+For a local OPA instance (`http://localhost:8181`) set `allow_insecure_pdp=True` — local development only.
 
 `opa_decision_path` must match your Rego package and boolean rule (e.g. package
 `myorg.authz`, rule `allow` → path `myorg/authz/allow`). The default matches the example

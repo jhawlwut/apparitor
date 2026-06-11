@@ -59,7 +59,7 @@ LlamaFirewall → Agent  : blocked — tool not dispatched
 
 | Module | Optional dep | Responsibility |
 | --- | --- | --- |
-| `scanner.py` | `llamafirewall` | `Scanner` subclass; pipeline orchestration; decision→`ScanResult` |
+| `scanner.py` | `llamafirewall` | `Scanner` subclass; wires config; maps `VerdictResult`→`ScanResult` |
 | `engine.py` | — | firewall-free pipeline orchestration (extract → map → evaluate → decide); `AuthorizationEngine` |
 | `decision.py` | — | pure verdict vocabulary (`Verdict`, `VerdictResult`) and decision/aggregation/error logic |
 | `backends.py` | — | `DecisionBackend` protocol; `build_backend` factory; `OPABackend` (Data API) |
@@ -77,8 +77,9 @@ LlamaFirewall → Agent  : blocked — tool not dispatched
 | `a2a.py` | `a2a-sdk` | A2A agent-executor adapter (`A2AAuthorizationExecutor`); subject from authenticated peer |
 
 Each optional-dep module is isolated so the core imports without it; missing deps raise
-`MissingDependencyError`. `apparitor.__init__` exposes `AuthZENScanner` lazily (PEP 562
-`__getattr__`) so `import apparitor` succeeds without LlamaFirewall.
+`MissingDependencyError`. All optional-dep adapters (`AuthZENScanner`, `NeMoAuthorizationRails`,
+`FastMCPAuthorizationMiddleware`, `A2AAuthorizationExecutor`, `CedarBackend`) are exposed lazily
+(PEP 562 `__getattr__`) so `import apparitor` succeeds without any optional extra installed.
 
 ## Registration
 

@@ -29,7 +29,7 @@ policy rewrite. Apache-2.0, built entirely on public standards.
 > LlamaFirewall scanner, the NeMo Guardrails rail, the FastMCP server middleware, and the
 > A2A executor — and the AuthZEN evaluation pipeline, working end-to-end against any
 > AuthZEN 1.0 PDP (OpenFGA, Cedar, OPA, Cerbos, Topaz) plus native OPA and in-process
-> Cedar backends, with 98% test coverage on the adapter-free core (see
+> Cedar backends, with ≥90% test coverage (CI-enforced) on the adapter-free core (see
 > [`CHANGELOG`](CHANGELOG.md)). **On the roadmap:** a native OpenFGA backend and the
 > code-exec enforcement point. APIs may change — see
 > [`docs/requirements.md`](docs/requirements.md) for the design and [`ROADMAP`](ROADMAP.md).
