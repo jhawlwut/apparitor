@@ -684,3 +684,233 @@ async def test_dual_principal_mapper_at_the_mcp_boundary(make_config, respx_mock
     sent = json.loads(route.calls.last.request.content)
     subjects = [item["subject"]["id"] for item in sent["evaluations"]]
     assert subjects == ["alice@acme.com", "travel-bot"]
+
+
+# --- boundary_subject (dual-principal for resource/prompt paths) ----------------------
+
+_BOUNDARY = Subject(type="agent", id="travel-bot")
+
+
+def _boundary_respond(decisions_by_subject: dict[str, bool]):
+    """Return a respx side_effect that makes per-subject decisions on batch requests."""
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        evals = [
+            {"decision": decisions_by_subject.get(item["subject"]["id"], True)}
+            for item in body["evaluations"]
+        ]
+        return httpx.Response(200, json={"evaluations": evals})
+
+    return respond
+
+
+@pytest.mark.asyncio
+async def test_boundary_resource_read_denied_when_boundary_denies(make_config, respx_mock) -> None:
+    # Boundary leg denied → resource read refused even though caller was allowed.
+    respx_mock.post(_BATCH_URL).mock(
+        side_effect=_boundary_respond({"alice@acme.com": True, "travel-bot": False})
+    )
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), boundary_subject=_BOUNDARY)
+    async with guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                from fastmcp.exceptions import McpError
+
+                with pytest.raises(McpError, match="not authorized"):
+                    await client.read_resource("resource://config")
+
+
+@pytest.mark.asyncio
+async def test_boundary_resource_read_batch_wire_format(make_config, respx_mock) -> None:
+    # Batch carries exactly two evaluations with the right subjects.
+    route = respx_mock.post(_BATCH_URL).mock(
+        side_effect=_boundary_respond({"alice@acme.com": True, "travel-bot": True})
+    )
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), boundary_subject=_BOUNDARY)
+    async with guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                await client.read_resource("resource://config")
+    sent = json.loads(route.calls.last.request.content)
+    subjects = [item["subject"]["id"] for item in sent["evaluations"]]
+    assert subjects == ["alice@acme.com", "travel-bot"]
+
+
+@pytest.mark.asyncio
+async def test_boundary_prompt_get_denied_when_boundary_denies(make_config, respx_mock) -> None:
+    # Same AND semantics on the prompt.get path.
+    respx_mock.post(_BATCH_URL).mock(
+        side_effect=_boundary_respond({"alice@acme.com": True, "travel-bot": False})
+    )
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), boundary_subject=_BOUNDARY)
+    async with guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                from fastmcp.exceptions import McpError
+
+                with pytest.raises(McpError, match="not authorized"):
+                    await client.get_prompt("greet", {"name": "Bo"})
+
+
+@pytest.mark.asyncio
+async def test_boundary_prompt_get_batch_wire_format(make_config, respx_mock) -> None:
+    route = respx_mock.post(_BATCH_URL).mock(
+        side_effect=_boundary_respond({"alice@acme.com": True, "travel-bot": True})
+    )
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), boundary_subject=_BOUNDARY)
+    async with guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                await client.get_prompt("greet", {"name": "Bo"})
+    sent = json.loads(route.calls.last.request.content)
+    subjects = [item["subject"]["id"] for item in sent["evaluations"]]
+    assert subjects == ["alice@acme.com", "travel-bot"]
+
+
+@pytest.mark.asyncio
+async def test_boundary_does_not_affect_tools_call(make_config, respx_mock) -> None:
+    # boundary_subject covers only resource/prompt paths — tools/call uses the mapper
+    # seam and must remain a single-evaluation call when boundary_subject is set.
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": True})
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), boundary_subject=_BOUNDARY)
+    async with guard:
+        with subject_scope(_ALICE):
+            async with Client(_server(guard)) as client:
+                await client.call_tool("read_file", {"path": "/tmp/a"})
+    assert route.call_count == 1
+    sent = json.loads(route.calls.last.request.content)
+    # Single evaluation, no batch envelope.
+    assert "evaluations" not in sent
+    assert sent["subject"]["id"] == "alice@acme.com"
+
+
+@pytest.mark.asyncio
+async def test_boundary_collapse_guard_resource_refuses_without_pdp(
+    make_config, respx_mock, caplog
+) -> None:
+    # boundary == resolved caller → collapse guard fires; no PDP call.
+    # route.call_count == 0 is the consequence; the authoritative guard unit test lives
+    # in test_mapping.py.
+    import logging
+
+    route = respx_mock.post(_BATCH_URL)
+    # The caller is alice@acme.com (via subject_scope); the boundary subject must differ.
+    # Set boundary to the same identity to trigger the guard.
+    guard = FastMCPAuthorizationMiddleware(
+        config=make_config(), boundary_subject=Subject(type="user", id="alice@acme.com")
+    )
+    with caplog.at_level(logging.WARNING, logger="apparitor"):
+        async with guard:
+            with subject_scope(_ALICE):
+                async with Client(_server(guard)) as client:
+                    from fastmcp.exceptions import McpError
+
+                    with pytest.raises(McpError, match="not authorized"):
+                        await client.read_resource("resource://config")
+    assert route.call_count == 0
+    assert "collapse" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_boundary_collapse_guard_prompt_refuses_without_pdp(
+    make_config, respx_mock, caplog
+) -> None:
+    # boundary == resolved caller on the prompts/get path → collapse guard fires; no PDP call.
+    import logging
+
+    route = respx_mock.post(_BATCH_URL)
+    guard = FastMCPAuthorizationMiddleware(
+        config=make_config(), boundary_subject=Subject(type="user", id="alice@acme.com")
+    )
+    with caplog.at_level(logging.WARNING, logger="apparitor"):
+        async with guard:
+            with subject_scope(_ALICE):
+                async with Client(_server(guard)) as client:
+                    from fastmcp.exceptions import McpError
+
+                    with pytest.raises(McpError, match="not authorized"):
+                        await client.get_prompt("greet", {"name": "Bo"})
+    assert route.call_count == 0
+    assert "collapse" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_boundary_unresolvable_subject_refuses_resource_without_pdp(
+    make_config, respx_mock
+) -> None:
+    # No resolvable subject (no token, no subject_scope, no static opt-in) → subject guard
+    # fires BEFORE the boundary leg is built; zero PDP calls.
+    route = respx_mock.post(_BATCH_URL)
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), boundary_subject=_BOUNDARY)
+    async with guard, Client(_server(guard)) as client:
+        from fastmcp.exceptions import McpError
+
+        with pytest.raises(McpError, match="not authorized"):
+            await client.read_resource("resource://config")
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_boundary_unresolvable_subject_refuses_prompt_without_pdp(
+    make_config, respx_mock
+) -> None:
+    # Same subject-guard-before-boundary guarantee on the prompts/get path.
+    route = respx_mock.post(_BATCH_URL)
+    guard = FastMCPAuthorizationMiddleware(config=make_config(), boundary_subject=_BOUNDARY)
+    async with guard, Client(_server(guard)) as client:
+        from fastmcp.exceptions import McpError
+
+        with pytest.raises(McpError, match="not authorized"):
+            await client.get_prompt("greet", {"name": "Bo"})
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_boundary_does_not_affect_listing_filter(make_config, respx_mock) -> None:
+    # filter_listings=True with boundary_subject set: the listing batch must carry exactly
+    # one evaluation per tool (the mapper seam, not the boundary path) — no doubled legs.
+    seen_counts: list[int] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        seen_counts.append(len(body["evaluations"]))
+        return httpx.Response(
+            200, json={"evaluations": [{"decision": True}] * len(body["evaluations"])}
+        )
+
+    respx_mock.post(_BATCH_URL).mock(side_effect=respond)
+    guard = FastMCPAuthorizationMiddleware(
+        config=make_config(), boundary_subject=_BOUNDARY, filter_listings=True
+    )
+    server = _server(guard)
+
+    @server.tool
+    def delete_database(name: str) -> str:
+        return name
+
+    async with guard:
+        with subject_scope(_ALICE):
+            async with Client(server) as client:
+                tools = await client.list_tools()
+    # Both tools are listed (boundary_subject does not affect the listing filter path).
+    assert {tool.name for tool in tools} == {"read_file", "delete_database"}
+    # Exactly one evaluation per tool in the single batch — no boundary legs doubled in.
+    assert seen_counts == [2]
+
+
+def test_boundary_workload_subject_rejected_at_construction(make_config) -> None:
+    with pytest.raises(ValueError, match="reserved"):
+        FastMCPAuthorizationMiddleware(
+            config=make_config(), boundary_subject=Subject(type="workload", id="svc-1")
+        )
+
+
+def test_boundary_cache_warning_emitted(make_config, caplog) -> None:
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="apparitor"):
+        FastMCPAuthorizationMiddleware(
+            config=make_config(cache_enabled=True), boundary_subject=_BOUNDARY
+        )
+    assert "never be consulted" in caplog.text

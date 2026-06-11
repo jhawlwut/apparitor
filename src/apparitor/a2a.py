@@ -87,8 +87,8 @@ from typing import TYPE_CHECKING, Any
 from .config import ScannerConfig
 from .decision import Verdict, VerdictResult, VerdictStatus
 from .engine import AuthorizationEngine, ReviewPredicate
-from .errors import MissingDependencyError
-from .mapping import request_context_attrs
+from .errors import AuthZENConfigError, MissingDependencyError
+from .mapping import build_boundary_leg, request_context_attrs
 from .models import Action, EvaluationRequest, Resource, Subject
 
 try:  # pragma: no cover - exercised via import-guard tests
@@ -135,6 +135,13 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
     request handler in the executor's place. A subject must be resolvable (authenticated
     peer, host-injected subject, or the opt-in static fallback) or the invocation is
     refused.
+
+    ``boundary_subject`` is **deployment-time** only, never per-request. When set, every
+    invocation is evaluated as a two-request batch — the resolved caller leg AND the
+    boundary leg — using the same AND/all-allow-or-block semantics as
+    :class:`~apparitor.mapping.DualPrincipalMapper`. The A2A request's tenant context
+    governs both legs (Amendment 1). Set it when the serving agent's own permission
+    boundary must be enforced regardless of what the caller is permitted.
     """
 
     def __init__(
@@ -147,6 +154,7 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
         skill_resolver: Callable[[RequestContext], str | None] | None = None,
         subject_type: str = "agent",
         allow_static_subject: bool = False,
+        boundary_subject: Subject | None = None,
         http_client: httpx.AsyncClient | None = None,
         review_predicate: ReviewPredicate | None = None,
         metrics: MetricsSink | None = None,
@@ -162,6 +170,10 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
             allow_static_subject and config.subject_type == "workload"
         ):
             raise ValueError('subject type "workload" is reserved')
+        if boundary_subject is not None and boundary_subject.type == "workload":
+            # Reserved for verified client-credentials tokens (see apparitor.fastmcp);
+            # a static boundary principal in that namespace would alias machine policies.
+            raise ValueError('subject type "workload" is reserved')
         label = agent_label.strip()
         if not label or "/" in label:
             raise ValueError("agent_label must be non-empty and contain no '/'")
@@ -171,13 +183,25 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
         self._skill_resolver = skill_resolver
         self._subject_type = subject_type
         self._allow_static_subject = allow_static_subject
+        self._boundary_subject = boundary_subject
         from .backends import build_backend
 
         backend = build_backend(config, http_client=http_client)
         self._engine = AuthorizationEngine(
             config, client=backend, review_predicate=review_predicate, metrics=metrics
         )
-        logger.info("apparitor: A2A executor gating agent.invoke for %r", label)
+        if boundary_subject is not None and config.cache_enabled:
+            logger.warning(
+                "apparitor: dual-principal evaluation always batches, so the ALLOW cache"
+                " (cache_enabled=True) will never be consulted"
+            )
+        logger.info(
+            "apparitor: A2A executor gating agent.invoke for %r%s",
+            label,
+            f"; boundary={boundary_subject.type}:{boundary_subject.id}"
+            if boundary_subject is not None
+            else "",
+        )
 
     @property
     def metrics(self) -> MetricsSink:
@@ -209,7 +233,9 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
 
     async def _authorize(self, context: RequestContext) -> VerdictResult | None:
         """Evaluate the invocation; ``None`` refuses without a PDP trip (no subject or
-        no sound policy key)."""
+        no sound policy key). When boundary_subject is set the caller leg and boundary leg
+        are sent as one batch; AuthZENConfigError from the collapse guard logs a WARNING
+        and maps to the generic refusal path (reason in operator log only)."""
         # Per-request data only: ServerCallContext.state is threaded through the SDK for
         # this request; ambient contextvars would be stale here (see module docstring).
         state: dict[str, Any] = dict(context.call_context.state) if context.call_context else {}
@@ -225,6 +251,15 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
             resource=resource,
             context=self._context_attrs(context, state),
         )
+        if self._boundary_subject is not None:
+            try:
+                boundary_leg = build_boundary_leg(
+                    request, self._boundary_subject, caller_subject=subject
+                )
+            except AuthZENConfigError as exc:
+                logger.warning("apparitor: boundary collapse guard refused: %s", exc)
+                return None
+            return await self._engine.evaluate_requests([request, boundary_leg])
         return await self._engine.evaluate_requests([request])
 
     def _resolve_subject(self, context: RequestContext, state: dict[str, Any]) -> Subject | None:

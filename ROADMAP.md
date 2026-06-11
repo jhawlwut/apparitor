@@ -89,9 +89,9 @@ aggregator across the popular agentic firewalls and policy engines.
   [`examples/three-peps/`](examples/three-peps/), gated by the `three-pep-demo` CI job.
 - ✅ A **dual-principal (user ∧ agent) mapper** — `DualPrincipalMapper` evaluates the
   end user's grant AND the agent's own permission boundary as one all-allow-or-block
-  batch, at every mapper-gated call (scanner, rail, FastMCP tools/listing). A2A and the
-  MCP resource/prompt paths shape their own tuples — boundary support there is
-  [#39](https://github.com/jhawlwut/apparitor/issues/39).
+  batch, at every mapper-gated call (scanner, rail, FastMCP tools/listing). The A2A
+  executor and FastMCP resource/prompt paths are also covered via `boundary_subject`
+  (closes [#39](https://github.com/jhawlwut/apparitor/issues/39)).
 - Keep the host-specific surface thin: only the adapter module may import a host SDK; the
   core stays standalone.
 

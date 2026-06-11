@@ -251,8 +251,9 @@ class DualPrincipalMapper(DefaultToolCallMapper):
     verified ``workload`` subject (see :mod:`apparitor.fastmcp`), the AND becomes
     workload-grant ∧ agent-boundary — deliberate, the reservation only forbids *minting*
     workload principals. At the MCP boundary the mapper seam covers ``tools/call`` and
-    listing filtering; resource reads and prompt gets are adapter-shaped and stay
-    single-principal (see :mod:`apparitor.fastmcp`).
+    listing filtering; resource reads and prompt gets are adapter-shaped — use
+    ``FastMCPAuthorizationMiddleware(boundary_subject=...)`` for those (see
+    :mod:`apparitor.fastmcp`).
     """
 
     def __init__(self, config: ScannerConfig, *, agent_subject: Subject | None = None) -> None:
@@ -316,6 +317,42 @@ class DualPrincipalMapper(DefaultToolCallMapper):
                 context=context,
             ),
         ]
+
+
+def build_boundary_leg(
+    primary: EvaluationRequest,
+    boundary_subject: Subject,
+    *,
+    caller_subject: Subject,
+) -> EvaluationRequest:
+    """Return the boundary principal's leg for a dual-principal adapter evaluation.
+
+    Mirrors the AND semantics of :class:`DualPrincipalMapper` for the adapter-shaped
+    paths (A2A executor, FastMCP resource/prompt gating) that cannot go through the mapper
+    seam. ``boundary_subject`` is the permission-ceiling principal; ``caller_subject`` is
+    the resolved request principal (the adapters pass ``primary.subject``). Both legs carry
+    the same context VALUE (equal dicts at the PDP; pydantic copies on construction); only
+    the resource is deep-copied so no post-map mutation can affect both legs through one
+    shared object. The action is reused, consistent with :class:`DualPrincipalMapper`.
+
+    Raises :class:`~apparitor.errors.AuthZENConfigError` when ``caller_subject`` equals
+    ``boundary_subject``: the AND would silently collapse to a single-principal check,
+    hiding a misconfiguration (e.g. the boundary set to the same static agent that the
+    caller resolved to).
+    """
+    # Identity key is type:id; properties are policy attributes, not identity, so they
+    # deliberately don't participate in the collapse-guard equality check.
+    if caller_subject.type == boundary_subject.type and caller_subject.id == boundary_subject.id:
+        raise AuthZENConfigError(
+            "dual-principal evaluation requires distinct principals: the resolved"
+            f" caller equals the boundary subject ({caller_subject.type}:{caller_subject.id})"
+        )
+    return EvaluationRequest(
+        subject=boundary_subject,
+        action=primary.action,
+        resource=primary.resource.model_copy(deep=True),
+        context=primary.context,
+    )
 
 
 def _normalize_tool_name(name: str) -> str:
