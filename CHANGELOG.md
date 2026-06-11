@@ -6,6 +6,41 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **`request_context_scope(context)` context manager** (`apparitor.mapping`, exported from
+  `apparitor`). Mirrors `subject_scope`: binds `current_request_context` for the duration
+  of the `with` block and resets it in `finally`, so a host that forgets to reset cannot
+  leak a prior request's injected context into a later request on a reused task/loop. This
+  is now the preferred pattern over calling `.set()/.reset()` directly (documented in
+  `docs/setup.md`).
+
+### Security
+- **Duplicate JSON key in PDP response now fails closed (§3.6).** `json.loads` collapses
+  duplicate keys with last-wins semantics, so a body like `{"decision": false, "decision":
+  true}` reached pydantic's `StrictBool` as `{"decision": true}` — coercing a
+  contradictory/malformed response into an ALLOW before validation ran. A
+  `object_pairs_hook` in the new `_strict_json` helper now raises
+  `MalformedPDPResponseError` on any duplicate key within a JSON object. The fix applies to
+  both the AuthZEN transport and the OPA backend (both parse PDP responses through the
+  shared `_handle_status` path). Sibling objects in a batch response (multiple `"decision"`
+  fields in distinct array entries) are correctly NOT flagged — the check is per-object.
+- **`VerdictResult.reason` is now always a generic string on error paths (§3.10).** Previously
+  `_fault_verdict` embedded `str(exc)` and `f"PDP unavailable: {exc}"` in the caller-visible
+  reason, which could expose the PDP host/URL on transport errors and internal detail on
+  unexpected exceptions. All error-path `VerdictResult.reason` values now use the fixed
+  `_DENY_REASON` constant. Exception detail continues to appear in `logger.warning` /
+  `logger.exception` calls for operator diagnostics — unchanged — and is now also emitted
+  before the early-return paths that previously had no log line (unparseable tool call,
+  4xx client error).
+- **`asyncio.CancelledError` is now recorded in metrics before re-propagating.** `CancelledError`
+  is a `BaseException` and was invisible to the `except Exception` guard in
+  `_evaluate_guarded` — a task cancelled mid-PDP-call produced no metric and no verdict,
+  which is indistinguishable from ALLOW at the caller. A dedicated `except
+  asyncio.CancelledError` clause now records a `block/error` decision metric (observable in
+  ops) and immediately re-raises, preserving structured-concurrency invariants. The public
+  `evaluate_normalized` and `evaluate_requests` docstrings now note that `CancelledError`
+  propagates and callers must treat an unfinished scan as non-authorized.
+
 ### Changed
 - **`AuthZENConfigError` now also inherits `ValueError` for backward compatibility.**
   Adapter constructors previously raised plain `ValueError` for misconfiguration (missing
