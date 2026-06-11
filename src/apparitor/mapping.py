@@ -84,6 +84,20 @@ def subject_scope(subject: Subject) -> Iterator[None]:
         current_subject.reset(token)
 
 
+@contextmanager
+def request_context_scope(context: Mapping[str, Any]) -> Iterator[None]:
+    """Bind :data:`current_request_context` for the duration of the ``with`` block, then reset it.
+
+    Prefer this over calling ``.set()/.reset()`` directly so the context is always cleared and
+    can never leak to a later request that reuses the same task or event loop.
+    """
+    token = current_request_context.set(context)
+    try:
+        yield
+    finally:
+        current_request_context.reset(token)
+
+
 def _json_safe(value: dict[str, Any]) -> dict[str, Any]:
     """Return a JSON-serialisable copy of ``value`` (stringifying exotic leaf types).
 
