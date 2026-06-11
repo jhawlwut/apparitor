@@ -20,9 +20,20 @@ All notable changes to this project are documented here. The format follows
   its boundary denies even when the human holds it. The user leg is request-scoped only
   (no `agent_id` fallback — that would collapse the AND); either principal unresolvable
   fails closed; `"workload"` stays reserved. Works via the `mapper=` seam in the scanner,
-  the NeMo rail and the FastMCP middleware (tools + listing); A2A and MCP resource/prompt
-  paths are tracked in [#39](https://github.com/jhawlwut/apparitor/issues/39). Note: dual
-  calls always evaluate as a batch, so the opt-in ALLOW cache is not consulted.
+  the NeMo rail and the FastMCP middleware (tools + listing). Note: dual calls always
+  evaluate as a batch, so the opt-in ALLOW cache is not consulted.
+- **Dual-principal boundary for adapter-shaped paths (closes
+  [#39](https://github.com/jhawlwut/apparitor/issues/39)).** `A2AAuthorizationExecutor`
+  and `FastMCPAuthorizationMiddleware` now accept a `boundary_subject` constructor parameter.
+  When set, every invocation (A2A) or every `resources/read` / `prompts/get` request (FastMCP)
+  is evaluated as a two-request batch — the resolved caller leg AND the boundary leg — using
+  the same AND/all-allow-or-block semantics as `DualPrincipalMapper`. For FastMCP,
+  `boundary_subject` covers the resource/prompt adapter paths only; use
+  `mapper=DualPrincipalMapper(config)` for `tools/call` and listing — a full deployment sets
+  both. The same fail-closed guards apply: `"workload"` boundary rejected at construction,
+  collapse (boundary == caller) refused before any PDP call, cache warning emitted when
+  `cache_enabled=True`. Shared helper `build_boundary_leg` in `apparitor.mapping` (exported
+  from the package) powers both adapters.
 - `ToolCallMapper.map()` may now return a **sequence** of requests that must all be
   allowed (backward compatible; `None`/empty sequence abstains — an empty group can
   never read as an allow, on either the aggregate or the per-item path).
