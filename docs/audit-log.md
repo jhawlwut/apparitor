@@ -81,7 +81,7 @@ apparitor batch denied_legs=%s
 **Rendered example:**
 
 ```
-apparitor batch denied_legs=['user:alice@acme.com files/delete', 'agent:travel-bot files/delete']
+apparitor batch denied_legs=['user:alice@acme.com tool_call.execute files/delete', 'agent:travel-bot tool_call.execute files/delete']
 ```
 
 **Field table:**
@@ -130,6 +130,20 @@ apparitor per-item decisions verdicts=['allow', 'block'] latency_ms=8.4
   use C1 for enforcement-path records.
 - Verdicts in `evaluate_each` counters are indistinguishable from C1 enforcement decisions
   in the metrics sink — account for that when alerting on block rates.
+
+## Timestamps and clock
+
+The contract lines deliberately carry **no timestamp token**: the `logging.LogRecord`'s
+`created` attribute (rendered via your formatter's `%(asctime)s`) is the time source, as
+is standard for Python logging. Two consequences for deployments that keep these lines as
+audit records:
+
+- **Configure the formatter** on the `apparitor` logger's handler to emit an ISO-8601
+  UTC timestamp (e.g. `%(asctime)s` with a UTC converter). A sink that stores only
+  `getMessage()` without record metadata has no event time and cannot serve as an audit
+  trail.
+- The host's clock is the clock of record — regulated deployments should run NTP-
+  disciplined clocks on enforcement points.
 
 ## Parsing guidance
 
@@ -207,6 +221,31 @@ may change without notice.
 | `apparitor: access token has no usable <claim> claim; refusing (…allow_workload_subject…)` | WARNING | FastMCP: verified token has no usable `sub` (or configured claim) and `allow_workload_subject` not set; call refused |
 | `apparitor: no authenticated subject for MCP request; refusing (…)` | WARNING | FastMCP: no token, no injected subject, and `allow_static_subject` not set; call refused |
 | `apparitor: no authenticated subject for A2A invocation; refusing (…)` | WARNING | A2A: no authenticated peer identity, no injected subject, and `allow_static_subject` not set; call refused |
+
+## Regulatory mapping (EU)
+
+The schema is designed so the operator's sink can satisfy the EU obligations that most
+commonly attach to agent authorization records. apparitor provides the *recording
+capability*; retention, residency, and access control are properties of the sink you
+route the `apparitor` logger to. Confirm applicability with your compliance function —
+this section maps the schema, it is not legal advice.
+
+| Obligation | How the schema relates |
+| --- | --- |
+| **AI Act (Reg. (EU) 2024/1689) Art. 12 — record-keeping.** High-risk AI systems must technically allow automatic recording of events enabling traceability of the system's functioning. | C1 is that record for the authorization function: per-decision outcome, every principal involved, the resource acted on, and a per-call fingerprint. Set `correlation_id` on every request so decisions chain to sessions/tasks — for regulated deployments treat it as required, not optional. |
+| **AI Act Arts. 19 / 26(6) — log retention.** Providers and deployers of high-risk systems keep automatically generated logs at least **six months** (longer where other law requires). | Retention happens at the sink, not in apparitor (persistence is deliberately out of scope pre-`v0.1`). Route the logger to a sink with a retention policy meeting your role's obligation. |
+| **AI Act Art. 14 — human oversight.** | `verdict=human_review` records that a decision was escalated to a human. Who reviewed it and the outcome happen outside apparitor — your review workflow must produce its own record and can join on `correlation` / `fingerprints`. |
+| **GDPR (Reg. (EU) 2016/679) — personal data in logs.** | `subjects=` ids and `denied_legs=` entries are personal data when they identify people (emails). You need a lawful basis (security/audit logging is commonly Art. 6(1)(f)); minimization is designed in (no raw arguments, no tokens, generic wire reasons); prefer pseudonymous subject ids from your IdP where policy allows. Fingerprints are **pseudonymized, not anonymous** — the digest is linkable to the request tuple by anyone who can reconstruct it. |
+| **GDPR Arts. 5(1)(e), 17 — storage limitation and erasure.** | Audit retention and erasure requests are in tension; Art. 17(3)(b)/(e) exemptions (legal obligation, legal claims) typically cover security audit trails for their retention window. Pseudonymous subject ids make this materially easier — decide before go-live, not at the first request. |
+| **GDPR Ch. V / data sovereignty.** | Routing the `apparitor` logger to a sink outside the EU/EEA is a personal-data transfer. If residency is a requirement, the log pipeline — not just the PDP — must stay in-region. |
+| **NIS2 (Dir. (EU) 2022/2555) / DORA (Reg. (EU) 2022/2554).** | The decision log feeds detection and incident reconstruction (denied legs name which principal was stopped, fail-closed errors are visible at WARNING/ERROR). Integrity protection (append-only storage, tamper evidence) is a sink property — these lines carry no signatures. |
+
+One known limitation to weigh for AI Act traceability: with the default
+`redact_arguments=True`, the input data of a call is represented only by argument **key
+names** inside the fingerprint (see above). Deployments whose obligations require
+reconstructing *what* was attempted — not just *that* it was attempted, by whom, on which
+resource — must either set `redact_arguments=False` (weigh the GDPR minimization cost) or
+keep input records in an adjacent system joined via `correlation`.
 
 ## Stability policy
 
