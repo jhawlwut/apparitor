@@ -22,6 +22,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from .decision import DUAL_PRINCIPAL_CACHE_WARNING
 from .errors import AuthZENConfigError
 from .models import Action, EvaluationRequest, Resource, Subject
 
@@ -271,10 +272,7 @@ class DualPrincipalMapper(DefaultToolCallMapper):
             raise AuthZENConfigError('subject type "workload" is reserved')
         self._agent_subject = agent_subject
         if config.cache_enabled:
-            logger.warning(
-                "apparitor: dual-principal evaluation always batches, so the ALLOW cache"
-                " (cache_enabled=True) will never be consulted"
-            )
+            logger.warning(DUAL_PRINCIPAL_CACHE_WARNING)
 
     def _resolve_user(self, request_context: Mapping[str, Any]) -> Subject:
         injected = request_context.get("subject")

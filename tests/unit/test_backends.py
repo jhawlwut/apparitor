@@ -7,7 +7,7 @@ import json
 import httpx
 import pytest
 
-from apparitor.backends import DecisionBackend, OPABackend, build_backend
+from apparitor.backends import DecisionBackend, OPABackend, build_backend, merge_batch_item
 from apparitor.client import AuthZENClient
 from apparitor.config import Backend
 from apparitor.decision import Verdict, VerdictStatus
@@ -272,3 +272,82 @@ def test_opa_backend_inherits_ssrf_guard(make_config) -> None:
     cfg = make_config(backend="opa", pdp_url="http://169.254.169.254", allow_insecure_pdp=False)
     with pytest.raises(AuthZENConfigError):
         OPABackend(cfg)
+
+
+# --- merge_batch_item (AuthZEN batch semantics) ------------------------------------
+
+
+def _subject(id: str = "bot") -> Subject:
+    return Subject(type="agent", id=id)
+
+
+def _action(name: str = "tool_call.execute") -> Action:
+    return Action(name=name)
+
+
+def _resource(id: str = "send_email") -> Resource:
+    return Resource(type="tool", id=id)
+
+
+def _base_request(**overrides: object) -> BatchEvaluationRequest:
+    params: dict[str, object] = {
+        "subject": _subject(),
+        "action": _action(),
+        "resource": _resource(),
+        "context": {"tenant": "default"},
+        "evaluations": [],
+    }
+    params.update(overrides)
+    return BatchEvaluationRequest(**params)  # type: ignore[arg-type]
+
+
+def test_merge_uses_request_defaults_when_item_fields_absent() -> None:
+    # An item with no fields at all inherits every request-level default.
+    req = _base_request()
+    merged = merge_batch_item(EvaluationItem(), req)
+    assert merged.subject == req.subject
+    assert merged.action == req.action
+    assert merged.resource == req.resource
+    assert merged.context == req.context
+
+
+def test_merge_item_subject_overrides_request_default() -> None:
+    req = _base_request()
+    item = EvaluationItem(subject=_subject("alice"))
+    merged = merge_batch_item(item, req)
+    assert merged.subject.id == "alice"  # item wins
+    assert merged.action == req.action  # fallback for the rest
+    assert merged.resource == req.resource
+
+
+def test_merge_item_action_overrides_request_default() -> None:
+    req = _base_request()
+    item = EvaluationItem(action=_action("agent.invoke"))
+    merged = merge_batch_item(item, req)
+    assert merged.action.name == "agent.invoke"
+    assert merged.subject == req.subject
+
+
+def test_merge_item_resource_overrides_request_default() -> None:
+    req = _base_request()
+    item = EvaluationItem(resource=_resource("delete_database"))
+    merged = merge_batch_item(item, req)
+    assert merged.resource.id == "delete_database"
+    assert merged.subject == req.subject
+
+
+def test_merge_item_context_overrides_request_default() -> None:
+    req = _base_request()
+    item = EvaluationItem(context={"tenant": "override"})
+    merged = merge_batch_item(item, req)
+    assert merged.context == {"tenant": "override"}
+
+
+def test_merge_empty_context_clears_request_default() -> None:
+    # An item with context={} deliberately clears the request-level context —
+    # it is not the same as "unset" (which falls back to the default).
+    # Uses `x if x is not None else default`, not falsy `or`, to preserve this.
+    req = _base_request(context={"tenant": "default"})
+    item = EvaluationItem(context={})
+    merged = merge_batch_item(item, req)
+    assert merged.context == {}  # wholesale override, not a fallback

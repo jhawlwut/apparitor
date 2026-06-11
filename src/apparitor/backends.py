@@ -24,6 +24,7 @@ from .errors import MalformedPDPResponseError
 from .models import (
     BatchEvaluationRequest,
     BatchEvaluationResponse,
+    EvaluationItem,
     EvaluationRequest,
     EvaluationResponse,
 )
@@ -127,22 +128,26 @@ def _extract_decision(data: object) -> bool:
     )
 
 
-def _batch_inputs(request: BatchEvaluationRequest) -> list[dict[str, Any]]:
-    """One OPA ``input`` document per batch entry, overlaying request-level defaults.
+def merge_batch_item(item: EvaluationItem, request: BatchEvaluationRequest) -> EvaluationRequest:
+    """Merge one batch entry with request-level defaults per AuthZEN batch semantics.
 
-    Mirrors AuthZEN batch semantics: top-level subject/action/resource/context are defaults
-    each entry may override. Override is wholesale, not a merge — an entry with ``context={}``
-    deliberately clears the request-level context (it is not the same as "unset", which falls
-    back to the default). The engine fills every entry fully, so this is also a correctness
-    guard for direct callers.
+    Override is wholesale, not a merge: an entry with ``context={}`` deliberately clears
+    the request-level context (it is not the same as "unset", which falls back to the
+    default). Fields other than ``context`` use ``x if x is not None else default`` rather
+    than falsy ``or``, consistent with how ``context`` is handled (a falsy-but-present value,
+    e.g. an empty-string subject id, must override the default — not silently fall back to it).
     """
-    inputs: list[dict[str, Any]] = []
-    for item in request.evaluations:
-        merged = EvaluationRequest(
-            subject=item.subject or request.subject,
-            action=item.action or request.action,
-            resource=item.resource or request.resource,
-            context=item.context if item.context is not None else request.context,
-        )
-        inputs.append(merged.model_dump(mode="json", exclude_none=True))
-    return inputs
+    return EvaluationRequest(
+        subject=item.subject if item.subject is not None else request.subject,
+        action=item.action if item.action is not None else request.action,
+        resource=item.resource if item.resource is not None else request.resource,
+        context=item.context if item.context is not None else request.context,
+    )
+
+
+def _batch_inputs(request: BatchEvaluationRequest) -> list[dict[str, Any]]:
+    """One OPA ``input`` document per batch entry, overlaying request-level defaults."""
+    return [
+        merge_batch_item(item, request).model_dump(mode="json", exclude_none=True)
+        for item in request.evaluations
+    ]

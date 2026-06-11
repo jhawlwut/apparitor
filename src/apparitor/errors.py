@@ -20,8 +20,16 @@ class MissingDependencyError(AuthZENError):
     """
 
 
-class AuthZENConfigError(AuthZENError):
-    """Invalid or unsafe scanner configuration (e.g. a non-HTTPS / private PDP URL)."""
+class AuthZENConfigError(AuthZENError, ValueError):
+    """Invalid or unsafe scanner configuration (e.g. a non-HTTPS / private PDP URL).
+
+    Also inherits ``ValueError`` for backward compatibility: adapter constructors
+    previously raised plain ``ValueError`` for the same class of configuration error.
+    Both ``except ValueError`` and ``except AuthZENConfigError`` catch these.  Pre-1.0
+    decision: keep the ``ValueError`` mixin rather than a pure error-hierarchy break —
+    call sites that already match ``ValueError`` need no change, while new call sites
+    can use the narrower class.
+    """
 
 
 class AuthZENClientError(AuthZENError):
