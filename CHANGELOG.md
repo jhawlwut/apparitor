@@ -16,9 +16,9 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 - **Audit-log message prefixes normalized `authzen` → `apparitor`** to match the logger
   name and project name. Field names and grammar are unchanged. **Update log parsers**
-  anchoring on the old `authzen decision `, `authzen batch `, or `authzen per-item `
-  prefixes — replace with `apparitor decision `, `apparitor batch `,
-  `apparitor per-item `.
+  anchoring on the old `authzen decision`, `authzen batch`, or `authzen per-item`
+  prefixes — replace with `apparitor decision`, `apparitor batch`,
+  `apparitor per-item`.
 - **Runnable MCP authorization-gateway example (`examples/gateway/`).** FastMCP proxy
   fronting an unmodifiable upstream, middleware enforcing at the chokepoint: denied calls
   proven never to reach the upstream, listing filtered to hide what the subject may not
