@@ -19,6 +19,10 @@ venv/
 htmlcov/
 coverage.xml
 
+# Secrets — never commit real credentials or env files
+.env
+.env.*
+
 # Editors / OS
 .idea/
 .vscode/

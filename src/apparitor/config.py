@@ -80,8 +80,9 @@ class ScannerConfig(BaseModel):
     action_name: str = "tool_call.execute"
     resource_type: str = "tool"
 
-    # Static headers sent on every PDP request. Prefer a bring-your-own httpx client for
-    # secrets; anything here is also redacted from logs.
+    # Static headers sent on every PDP request. For secrets (bearer tokens, API keys),
+    # prefer a bring-your-own httpx.AsyncClient: values placed here are not sanitized
+    # from exception tracebacks.
     default_headers: dict[str, str] = Field(default_factory=dict)
 
     # --- failure handling ---
