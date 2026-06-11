@@ -13,14 +13,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip build twine
       - run: python -m build
       - run: twine check dist/*
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           path: dist/
@@ -28,13 +28,33 @@ jobs:
       # to sbom/ (not dist/) so it is not fed to `twine upload` in the publish job.
       - name: Generate SBOM (CycloneDX, runtime tree)
         run: scripts/generate_sbom.sh
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sbom
           path: sbom/apparitor.cdx.json
 
+  # Gate publishing on the test suite so a tag push on a broken commit cannot reach
+  # PyPI even if the build artifact was produced before the fault was introduced.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - name: Ruff (lint)
+        run: ruff check .
+      - name: Ruff (format check)
+        run: ruff format --check .
+      - name: Mypy (strict)
+        run: mypy src/
+      - name: Pytest (unit suite)
+        run: pytest
+
   publish:
-    needs: build
+    needs: [build, test]
     runs-on: ubuntu-latest
     # PyPI Trusted Publishing (OIDC): no API token needed. Configure the publisher
     # in the PyPI project settings and create a "pypi" environment in repo settings.
@@ -44,7 +64,7 @@ jobs:
       # creates a GitHub Release.
       id-token: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
           path: dist/
@@ -62,7 +82,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: sbom
           path: sbom/
