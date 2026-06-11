@@ -29,7 +29,7 @@ keywords = [
 # NOTE: per PEP 639 the license is declared via the SPDX `license` field above,
 # so no "License ::" trove classifier is included here (they are mutually redundant).
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
@@ -107,6 +107,25 @@ Changelog = "https://github.com/jhawlwut/apparitor/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
 path = "src/apparitor/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+# Explicit include list so the sdist is reproducible and contains exactly what
+# is needed to rebuild the wheel and run the test suite from source, plus files
+# linked from README.md so relative links resolve for sdist extractors.
+include = [
+  "src/",
+  "tests/",
+  "docs/",
+  "examples/",
+  "LICENSE",
+  "NOTICE",
+  "CHANGELOG.md",
+  "README.md",
+  "CONTRIBUTING.md",
+  "ROADMAP.md",
+  "SECURITY.md",
+  "pyproject.toml",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/apparitor"]

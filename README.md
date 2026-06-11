@@ -25,7 +25,7 @@ standard, so the same wiring reaches the engines you already author policy in �
 **OpenFGA** (Zanzibar / ReBAC), **Cedar** (policy-as-code), and **OPA / Rego** — with no
 policy rewrite. Apache-2.0, built entirely on public standards.
 
-> **Status: `0.0.1a0` — pre-alpha.** **Shipping today:** four enforcement points — the
+> **Status: `0.1.0` — beta.** **Shipping today:** four enforcement points — the
 > LlamaFirewall scanner, the NeMo Guardrails rail, the FastMCP server middleware, and the
 > A2A executor — and the AuthZEN evaluation pipeline, working end-to-end against any
 > AuthZEN 1.0 PDP (OpenFGA, Cedar, OPA, Cerbos, Topaz) plus native OPA and in-process

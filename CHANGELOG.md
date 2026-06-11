@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-11
+
 ### Added
 - **Audit-log schema frozen as a stability contract (`docs/audit-log.md`).** Logger,
   levels, C1/C2/C3 line grammar (format strings, field tables, rendered examples),
@@ -14,13 +16,6 @@ All notable changes to this project are documented here. The format follows
   routing), and stability policy. Pinned by
   `tests/unit/test_log_contract.py` — a failure there is a breaking log-schema change
   requiring a CHANGELOG "Update log parsers" entry and a version bump.
-
-### Changed
-- **Audit-log message prefixes normalized `authzen` → `apparitor`** to match the logger
-  name and project name. Field names and grammar are unchanged. **Update log parsers**
-  anchoring on the old `authzen decision`, `authzen batch`, or `authzen per-item`
-  prefixes — replace with `apparitor decision`, `apparitor batch`,
-  `apparitor per-item`.
 - **Runnable MCP authorization-gateway example (`examples/gateway/`).** FastMCP proxy
   fronting an unmodifiable upstream, middleware enforcing at the chokepoint: denied calls
   proven never to reach the upstream, listing filtered to hide what the subject may not
@@ -94,8 +89,6 @@ All notable changes to this project are documented here. The format follows
 - `AuthorizationEngine.evaluate_requests()` (pre-mapped requests, e.g. adapter-shaped
   resource/prompt tuples) and `AuthorizationEngine.evaluate_each()` (positional per-item
   verdicts over one batch round trip, for visibility filtering — fail-closed per item).
-- The structured decision log's resource-id field is now `resources=` (was `tools=`) —
-  it can carry resource URIs and prompt keys, not just tool names. Update log parsers.
 - **Three-PEP portability demo (`examples/three-peps/`).** The same vendored Cedar policy
   (`examples/cedar/policies.cedar`, deny-override on `destructive == true`) enforced
   identically at the LlamaFirewall scanner, the NeMo Guardrails rail, and the FastMCP
@@ -161,6 +154,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Audit-log message prefixes normalized `authzen` → `apparitor`** to match the logger
+  name and project name. Field names and grammar are unchanged. **Update log parsers**
+  anchoring on the old `authzen decision`, `authzen batch`, or `authzen per-item`
+  prefixes — replace with `apparitor decision`, `apparitor batch`,
+  `apparitor per-item`.
+- The structured decision log's resource-id field is now `resources=` (was `tools=`) —
+  it can carry resource URIs and prompt keys, not just tool names. Update log parsers.
 - The structured decision log now records **every distinct principal** as `subjects=`
   (was `subject=` with only the first leg) — under dual-principal evaluation the audit
   trail must name both the user and the agent — and `resources=` / `fingerprints=`
@@ -183,10 +183,6 @@ All notable changes to this project are documented here. The format follows
   resolve a per-call server label). A custom mapper subclass overriding the protected
   `_resource` must adopt the new signature; the public `ToolCallMapper.map` contract is
   unchanged.
-
-### Not yet implemented
-
-- Amazon Verified Permissions (cloud) example.
 
 ## [0.0.1a0]
 - Initial pre-alpha scaffold.
