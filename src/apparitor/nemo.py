@@ -62,8 +62,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from .config import ScannerConfig
-from .decision import Verdict, VerdictResult, VerdictStatus
-from .engine import AuthorizationEngine, ReviewPredicate
+from .decision import VerdictResult, is_allowed_inline
+from .engine import ReviewPredicate, build_engine
 from .errors import MissingDependencyError
 from .mapping import current_request_context
 
@@ -84,13 +84,6 @@ if TYPE_CHECKING:
 
     from .mapping import ToolCallMapper
     from .metrics import MetricsSink
-
-#: Verdicts that authorize the tool call; everything else (and any ``status=ERROR``) blocks.
-_ALLOW_VERDICTS = frozenset({Verdict.ALLOW, Verdict.SKIP})
-
-
-def _is_allowed(verdict: VerdictResult) -> bool:
-    return verdict.status is not VerdictStatus.ERROR and verdict.verdict in _ALLOW_VERDICTS
 
 
 def authorization_blocks(allowed: object) -> bool:
@@ -145,22 +138,15 @@ class NeMoAuthorizationRails:
         metrics: MetricsSink | None = None,
         action_name: str = "authorize_tool_calls",
     ) -> None:
-        if config is None:
-            if pdp_url is None:
-                raise ValueError("provide either pdp_url or config")
-            config = ScannerConfig(pdp_url=pdp_url)
-        self._config = config
-        self.action_name = action_name
-        from .backends import build_backend
-
-        backend = build_backend(config, http_client=http_client)
-        self._engine = AuthorizationEngine(
+        self._config, self._engine = build_engine(
+            pdp_url,
             config,
-            client=backend,
+            http_client=http_client,
             mapper=mapper,
             review_predicate=review_predicate,
             metrics=metrics,
         )
+        self.action_name = action_name
         self._action = self._build_action()
 
     @property
@@ -190,7 +176,7 @@ class NeMoAuthorizationRails:
                 request_context=current_request_context.get(),
             )
             return ActionResult(
-                return_value=_is_allowed(verdict), context_updates=_context_updates(verdict)
+                return_value=is_allowed_inline(verdict), context_updates=_context_updates(verdict)
             )
 
         # NeMo ships no type stubs, so @action is untyped; apply it as a call (not decorator

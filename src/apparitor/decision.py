@@ -8,10 +8,17 @@ decision/aggregation/error surface is unit-testable without the ML stack; the sc
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from .config import OnError
+
+if TYPE_CHECKING:
+    from .metrics import MetricsSink
+
+_log = logging.getLogger("apparitor")
 
 
 class Verdict(str, Enum):
@@ -88,3 +95,56 @@ def resolve_error(on_error: OnError, reason: str) -> VerdictResult:
     """Resolve a PDP error per policy. There is no fail-open: deny or human review only."""
     verdict = Verdict.BLOCK if on_error is OnError.DENY else Verdict.HUMAN_REVIEW
     return VerdictResult(verdict=verdict, reason=reason, status=VerdictStatus.ERROR)
+
+
+def is_allowed_inline(verdict: VerdictResult) -> bool:
+    """Return True when the verdict authorizes execution on an in-runtime adapter.
+
+    ALLOW and SKIP both pass here because SKIP means "the message contained no tool
+    calls to authorize" — there is nothing to gate, so pass-through is correct.  This
+    is the right predicate for the LlamaFirewall scanner and the NeMo rail, where the
+    engine's SKIP path is reached only when ``tool_calls`` is None or empty.
+
+    Do NOT use this at a network boundary (see :func:`is_allowed_gateway`): a SKIP at
+    that layer would mean the mapper abstained on an actually-submitted call, and
+    executing anyway would be an authorization bypass.
+    """
+    return verdict.status is not VerdictStatus.ERROR and verdict.verdict in (
+        Verdict.ALLOW,
+        Verdict.SKIP,
+    )
+
+
+def is_allowed_gateway(verdict: VerdictResult) -> bool:
+    """Return True only when the verdict is a clean ALLOW — for boundary/network adapters.
+
+    At a network boundary (FastMCP middleware, A2A executor) exactly one request is
+    always submitted, so a SKIP verdict can only mean the mapper abstained on the
+    submitted call.  Executing on a SKIP would silently bypass authorization.  Only
+    ALLOW — with status SUCCESS, not ERROR — reaches the downstream handler.
+
+    For in-runtime adapters where SKIP legitimately means "nothing to authorize", use
+    :func:`is_allowed_inline` instead.
+    """
+    return verdict.status is not VerdictStatus.ERROR and verdict.verdict is Verdict.ALLOW
+
+
+#: Warning emitted once at construction when dual-principal evaluation is combined with the
+#: ALLOW cache; imported by all three sites (fastmcp, a2a, mapping) so the text is pinned
+#: in one place and the test-suite can assert the exact string.
+DUAL_PRINCIPAL_CACHE_WARNING = (
+    "apparitor: dual-principal evaluation always batches, so the ALLOW cache"
+    " (cache_enabled=True) will never be consulted"
+)
+
+
+def record_pre_engine_refusal(metrics: MetricsSink) -> None:
+    """Count a pre-engine refusal (no subject / adapter fault) as a BLOCK+ERROR metric.
+
+    Best-effort and isolated: a faulty sink must never convert a refusal into an
+    execution, so the exception is swallowed after logging.
+    """
+    try:
+        metrics.record_decision(verdict="block", status="error", latency_s=0.0)
+    except Exception:
+        _log.exception("apparitor: refusal metric emission failed (verdict unaffected)")
