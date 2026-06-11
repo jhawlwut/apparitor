@@ -218,6 +218,44 @@ async def test_byo_client_is_not_closed_by_aclose(make_config, noop_sleep) -> No
     await byo.aclose()
 
 
+@pytest.mark.asyncio
+async def test_duplicate_json_key_in_response_is_malformed(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    # A body like {"decision": false, "decision": true} must not be silently collapsed to
+    # {"decision": true} (last-wins in json.loads) before pydantic's StrictBool sees it —
+    # that would coerce a contradictory/malformed response into an ALLOW.  Requirements §3.6.
+    respx_mock.post(_EVAL_URL).respond(
+        content=b'{"decision": false, "decision": true}',
+        headers={"content-type": "application/json"},
+    )
+    client = await _client(make_config, noop_sleep)
+    with pytest.raises(MalformedPDPResponseError, match="duplicate"):
+        await client.evaluate(_request())
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_batch_response_sibling_objects_with_same_key_are_valid(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    # Sibling JSON objects (e.g. two "decision" fields in distinct array entries) are NOT
+    # duplicates — the duplicate-key check is per-object, not across the whole document.
+    from apparitor.models import BatchEvaluationRequest, EvaluationItem
+
+    respx_mock.post(_BATCH_URL).respond(
+        json={"evaluations": [{"decision": True}, {"decision": False}]}
+    )
+    client = await _client(make_config, noop_sleep)
+    req = _request()
+    batch = BatchEvaluationRequest(
+        evaluations=[EvaluationItem(resource=req.resource, action=req.action, subject=req.subject)]
+    )
+    resp = await client.evaluate_batch(batch)
+    assert [e.decision for e in resp.evaluations] == [True, False]
+    await client.aclose()
+
+
 def test_ssrf_guard_rejects_http_and_private_and_localhost() -> None:
     for bad in (
         "http://pdp.internal",  # not https

@@ -137,6 +137,22 @@ async def test_non_json_body_fails_closed(make_config, noop_sleep, respx_mock) -
     await backend.aclose()
 
 
+@pytest.mark.asyncio
+async def test_duplicate_json_key_in_opa_response_fails_closed(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    # The strict JSON parser applies to OPA too (via the shared _handle_status); a
+    # duplicate key in the OPA response must never silently coerce to an allow.
+    respx_mock.post(_OPA_URL).respond(
+        content=b'{"result": false, "result": true}',
+        headers={"content-type": "application/json"},
+    )
+    backend = await _backend(make_config, noop_sleep)
+    with pytest.raises(MalformedPDPResponseError, match="duplicate"):
+        await backend.evaluate(_request())
+    await backend.aclose()
+
+
 # --- batch ---------------------------------------------------------------------------
 
 
