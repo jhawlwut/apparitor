@@ -28,6 +28,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .backends import merge_batch_item
 from .errors import AuthZENConfigError, MalformedPDPResponseError, MissingDependencyError
 from .models import (
     BatchEvaluationRequest,
@@ -140,7 +141,9 @@ class CedarBackend:
 
     def _decide_batch(self, request: BatchEvaluationRequest) -> list[bool]:
         try:
-            requests = [self._cedar_request(r) for r in _merged_requests(request)]
+            requests = [
+                self._cedar_request(merge_batch_item(item, request)) for item in request.evaluations
+            ]
             results = cedarpy.is_authorized_batch(
                 requests, self._policies, self._entities, self._schema
             )
@@ -149,21 +152,3 @@ class CedarBackend:
             return [bool(r.decision == cedarpy.Decision.Allow) for r in results]
         except Exception as exc:
             raise MalformedPDPResponseError(f"Cedar batch evaluation failed: {exc}") from exc
-
-
-def _merged_requests(batch: BatchEvaluationRequest) -> list[EvaluationRequest]:
-    """One full :class:`EvaluationRequest` per batch entry, overlaying request-level defaults.
-
-    AuthZEN batch semantics: top-level subject/action/resource/context are defaults each entry
-    may override (wholesale, not a merge). The engine fills every entry fully; this also guards
-    direct callers.
-    """
-    return [
-        EvaluationRequest(
-            subject=item.subject or batch.subject,
-            action=item.action or batch.action,
-            resource=item.resource or batch.resource,
-            context=item.context if item.context is not None else batch.context,
-        )
-        for item in batch.evaluations
-    ]

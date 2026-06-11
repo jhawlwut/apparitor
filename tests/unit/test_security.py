@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import logging
 
+import httpx
 import pytest
 
 from apparitor.client import AuthZENClient
-from apparitor.config import ScannerConfig
+from apparitor.config import OnError, ScannerConfig
+from apparitor.decision import Verdict, VerdictStatus
 from apparitor.engine import AuthorizationEngine
 from apparitor.errors import AuthZENConfigError
 
@@ -64,3 +66,58 @@ async def test_arguments_are_redacted_in_the_pdp_request_by_default(
     await engine.evaluate_tool_calls([make_openai_call("read", path="/etc/shadow")])
     sent = json.loads(route.calls.last.request.content)
     assert sent["resource"]["properties"]["arguments"] == {"path": "***redacted***"}
+
+
+# --- ALLOW-only cache invariant -------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_block_decision_is_never_cached(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    # A BLOCK verdict must always be re-evaluated on every request: caching a deny would
+    # risk promoting it to an allow if the PDP's decision later changes (e.g. policy
+    # rollout between calls).  Only ALLOW decisions are stored in the cache.
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": False})
+    engine = _engine(make_config(cache_enabled=True), noop_sleep)
+    call = make_openai_call("delete_table")
+    first = await engine.evaluate_tool_calls([call])
+    second = await engine.evaluate_tool_calls([call])
+    assert first.verdict is Verdict.BLOCK
+    assert second.verdict is Verdict.BLOCK
+    # Both calls hit the PDP — the deny was never placed in cache.
+    assert route.call_count == 2
+
+
+# --- on_error produces non-ALLOW outcomes on PDP failure ------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pdp_failure_with_on_error_deny_blocks(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    # The default on_error=DENY path: a PDP outage must produce BLOCK(status=ERROR),
+    # never a coerced allow.
+    respx_mock.post(_EVAL_URL).mock(side_effect=httpx.ConnectError("refused"))
+    engine = _engine(make_config(on_error=OnError.DENY, max_retries=0), noop_sleep)
+    result = await engine.evaluate_tool_calls([make_openai_call("read")])
+    assert result.verdict is Verdict.BLOCK
+    assert result.status is VerdictStatus.ERROR
+
+
+@pytest.mark.asyncio
+async def test_pdp_failure_with_on_error_human_review_escalates(
+    make_config, make_openai_call, noop_sleep, respx_mock
+) -> None:
+    # on_error=HUMAN_REVIEW escalates to a HITL verdict on error — still non-ALLOW,
+    # still fails closed.  HUMAN_REVIEW is never a silent allow.
+    respx_mock.post(_EVAL_URL).mock(side_effect=httpx.ConnectError("refused"))
+    engine = _engine(make_config(on_error=OnError.HUMAN_REVIEW, max_retries=0), noop_sleep)
+    result = await engine.evaluate_tool_calls([make_openai_call("read")])
+    assert result.verdict is Verdict.HUMAN_REVIEW
+    assert result.status is VerdictStatus.ERROR
+    # Confirm it is not an allow verdict — the is_allowed_* predicates must both refuse it.
+    from apparitor.decision import is_allowed_gateway, is_allowed_inline
+
+    assert is_allowed_inline(result) is False
+    assert is_allowed_gateway(result) is False

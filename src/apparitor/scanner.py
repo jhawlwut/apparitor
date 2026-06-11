@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from .config import ScannerConfig
 from .decision import Verdict, VerdictResult, VerdictStatus
-from .engine import AuthorizationEngine, ReviewPredicate
+from .engine import ReviewPredicate, build_engine
 from .errors import MissingDependencyError
 
 try:  # pragma: no cover - exercised via import-guard tests
@@ -82,17 +82,10 @@ class AuthZENScanner(Scanner):  # type: ignore[misc]  # LlamaFirewall ships no t
         block_threshold: float = 1.0,
     ) -> None:
         super().__init__(scanner_name, block_threshold)
-        if config is None:
-            if pdp_url is None:
-                raise ValueError("provide either pdp_url or config")
-            config = ScannerConfig(pdp_url=pdp_url)
-        self._config = config
-        from .backends import build_backend
-
-        backend = build_backend(config, http_client=http_client)
-        self._engine = AuthorizationEngine(
+        self._config, self._engine = build_engine(
+            pdp_url,
             config,
-            client=backend,
+            http_client=http_client,
             mapper=mapper,
             review_predicate=review_predicate,
             metrics=metrics,

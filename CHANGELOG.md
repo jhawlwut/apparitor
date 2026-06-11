@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **`AuthZENConfigError` now also inherits `ValueError` for backward compatibility.**
+  Adapter constructors previously raised plain `ValueError` for misconfiguration (missing
+  PDP URL, reserved subject type, invalid label — now all four adapters, including the
+  scanner). Code catching `except ValueError` still catches these; code that was already
+  catching `except AuthZENConfigError` is unaffected. Pre-1.0 decision: keeping the mixin
+  avoids a breaking change for callers that only imported the public error hierarchy after
+  the fact. Update existing `except ValueError` handlers that handle only configuration
+  errors to catch `AuthZENConfigError` instead for precision. `build_engine` now also
+  rejects providing both `pdp_url` and `config` simultaneously (previously config silently
+  won; now a `AuthZENConfigError` is raised).
+- **Inline/gateway SKIP semantics and batch-item merge logic unified across all adapters.**
+  `is_allowed_inline`, `is_allowed_gateway`, `record_pre_engine_refusal`, and
+  `DUAL_PRINCIPAL_CACHE_WARNING` are shared helpers in `apparitor.decision` (lowest-common
+  import, engine-free and host-SDK-free to avoid import cycles); their divergent SKIP
+  behaviour and the `is not None` batch-item merge semantics are pinned by tests.
+
 ## [0.1.0] - 2026-06-11
 
 ### Added
