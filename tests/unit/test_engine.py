@@ -8,7 +8,8 @@ import pytest
 from apparitor.client import AuthZENClient
 from apparitor.config import OnError
 from apparitor.decision import Verdict, VerdictStatus
-from apparitor.engine import AuthorizationEngine
+from apparitor.engine import AuthorizationEngine, build_engine
+from apparitor.errors import AuthZENConfigError
 
 pytestmark = pytest.mark.unit
 
@@ -879,3 +880,26 @@ async def test_decision_log_records_all_principals(
     with _alice(), caplog.at_level(logging.INFO, logger="apparitor"):
         await engine.evaluate_tool_calls([make_openai_call("delete")])
     assert "subjects=['alice@acme.com', 'travel-bot']" in caplog.text
+
+
+# --- build_engine factory -----------------------------------------------------------
+
+
+def test_build_engine_both_none_raises() -> None:
+    # Neither pdp_url nor config — adapter misconfiguration must be loud.
+    with pytest.raises(AuthZENConfigError, match="pdp_url or config"):
+        build_engine(None, None)
+
+
+def test_build_engine_both_provided_raises(make_config) -> None:
+    # Providing both is ambiguous; the docstring prohibits it and config silently winning
+    # would be a surprise — reject explicitly.
+    with pytest.raises(AuthZENConfigError, match="not both"):
+        build_engine("http://pdp.test", make_config())
+
+
+def test_build_engine_pdp_url_only_builds_config() -> None:
+    # A bare URL must construct a ScannerConfig and return a live engine.
+    cfg, engine = build_engine("https://pdp.example.com/access/v1/evaluation", None)
+    assert str(cfg.pdp_url) == "https://pdp.example.com/access/v1/evaluation"
+    assert isinstance(engine, AuthorizationEngine)

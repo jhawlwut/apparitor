@@ -174,7 +174,7 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
             raise AuthZENConfigError(WORKLOAD_RESERVED_MSG)
         label = agent_label.strip()
         if not label or "/" in label:
-            raise ValueError("agent_label must be non-empty and contain no '/'")
+            raise AuthZENConfigError("agent_label must be non-empty and contain no '/'")
         self._delegate = delegate
         self._config = config
         self._agent_label = label

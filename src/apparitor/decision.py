@@ -4,6 +4,13 @@ Defines the internal verdict vocabulary and the functions that turn AuthZEN resp
 (and error conditions) into a verdict. Keeping this free of LlamaFirewall means the whole
 decision/aggregation/error surface is unit-testable without the ML stack; the scanner maps
 :class:`VerdictResult` onto LlamaFirewall's ``ScanResult`` at the boundary.
+
+Also hosts the shared adapter helpers that all four adapters import:
+:func:`is_allowed_inline` / :func:`is_allowed_gateway` (SKIP semantics differ between
+in-runtime firewall and gateway adapters), :func:`record_pre_engine_refusal`, and
+:data:`DUAL_PRINCIPAL_CACHE_WARNING`. They live here — rather than in ``engine`` — because
+this is the lowest-common import that is both engine-free and host-SDK-free; placing them
+higher would create circular imports between the adapter modules and the engine.
 """
 
 from __future__ import annotations

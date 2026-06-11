@@ -17,6 +17,7 @@ from llamafirewall import AssistantMessage, ScanDecision, ScanStatus  # noqa: E4
 
 from apparitor import AuthZENScanner, Subject  # noqa: E402
 from apparitor.decision import Verdict, VerdictResult, VerdictStatus  # noqa: E402
+from apparitor.errors import AuthZENConfigError  # noqa: E402
 from apparitor.mapping import subject_scope  # noqa: E402
 
 _EVAL_URL = "http://pdp.test/access/v1/evaluation"
@@ -49,7 +50,7 @@ def test_verdict_maps_to_scan_result(
 
 
 def test_constructor_requires_pdp_url_or_config() -> None:
-    with pytest.raises(ValueError, match="pdp_url or config"):
+    with pytest.raises(AuthZENConfigError, match="pdp_url or config"):
         AuthZENScanner()
 
 
