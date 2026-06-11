@@ -29,6 +29,7 @@ from mcp.server.auth.middleware.auth_context import auth_context_var  # noqa: E4
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser  # noqa: E402
 
 from apparitor import Subject  # noqa: E402
+from apparitor.errors import AuthZENConfigError  # noqa: E402
 from apparitor.fastmcp import FastMCPAuthorizationMiddleware  # noqa: E402
 from apparitor.mapping import subject_scope  # noqa: E402
 
@@ -72,6 +73,11 @@ def _token(claims: dict[str, object], client_id: str = "client-1") -> Iterator[N
 def test_constructor_requires_pdp_url_or_config() -> None:
     with pytest.raises(ValueError, match="pdp_url or config"):
         FastMCPAuthorizationMiddleware()
+
+
+def test_constructor_rejects_both_pdp_url_and_config(make_config) -> None:
+    with pytest.raises(AuthZENConfigError, match="not both"):
+        FastMCPAuthorizationMiddleware("http://pdp.test", config=make_config())
 
 
 @pytest.mark.asyncio

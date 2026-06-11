@@ -172,6 +172,13 @@ def test_constructor_validates(make_config) -> None:
         )
 
 
+def test_constructor_rejects_both_pdp_url_and_config(make_config) -> None:
+    with pytest.raises(AuthZENConfigError, match="not both"):
+        A2AAuthorizationExecutor(
+            _EchoExecutor(), "http://pdp.test", config=make_config(), agent_label="x"
+        )
+
+
 @pytest.mark.asyncio
 async def test_authenticated_peer_allowed(make_config) -> None:
     pdp = _PDP(decision=True)
