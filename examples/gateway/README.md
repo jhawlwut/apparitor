@@ -25,7 +25,7 @@ only path — apparitor enforces at the chokepoint once the path is constrained.
 
 ## Running the demo
 
-```
+```bash
 pip install -e ".[fastmcp]"
 python examples/gateway/demo.py
 ```
