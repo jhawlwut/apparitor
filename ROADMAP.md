@@ -53,6 +53,11 @@ Status legend: ✅ done · 🔜 next · 📋 planned.
 - Documentation site. ✅ Example scenarios as runnable demos (`examples/scenarios/`).
 - `0.1.0` release to PyPI via OIDC trusted publishing; SHA-pinned CI actions; SBOM /
   dependency audit.
+- ✅ **EU AI Act / CADA compliance reference** ([`docs/eu-ai-act.md`](docs/eu-ai-act.md)):
+  field-by-field mapping of the decision log to Article 12 categories, the Article 14
+  human-oversight mechanism (`HUMAN_IN_THE_LOOP_REQUIRED`), and the deployer obligations
+  (tamper-evidence, 6-month retention) that are infrastructure concerns outside this
+  library's scope. High-risk obligations apply from **2 August 2026**.
 
 **Acceptance:** a tagged `0.1.0` on PyPI, green release pipeline, no open P0/P1
 security findings.
