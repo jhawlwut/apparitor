@@ -76,14 +76,14 @@ not forwarded as context.) The `correlation_id` value also appears verbatim in t
 log line — see [audit-log.md](audit-log.md) for the full log schema and stability
 contract.
 
-```python
-from apparitor.mapping import current_request_context
+Use `request_context_scope` rather than calling `.set()/.reset()` directly — it ensures the
+context is always cleared on exit and cannot leak to a later request that reuses the same task:
 
-token = current_request_context.set({"user_id": "alice@acme.com", "conversation_id": "c-42"})
-try:
+```python
+from apparitor import request_context_scope
+
+with request_context_scope({"user_id": "alice@acme.com", "conversation_id": "c-42"}):
     result = await firewall.scan_async(assistant_message)
-finally:
-    current_request_context.reset(token)
 ```
 
 > **Security:** the subject and request context must be **host-trusted, out-of-band** data,

@@ -53,6 +53,7 @@ from .mapping import (
     current_request_context,
     current_subject,
     mcp_resource_id,
+    request_context_scope,
     subject_scope,
 )
 from .metrics import DEFAULT_BUCKETS, InMemoryMetrics, MetricsSink, NoopMetrics
@@ -136,6 +137,7 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
     "current_subject",
     "current_request_context",
     "subject_scope",
+    "request_context_scope",
     "mcp_resource_id",
     # errors
     "AuthZENError",

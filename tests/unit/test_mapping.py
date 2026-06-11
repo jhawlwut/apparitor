@@ -176,6 +176,28 @@ def test_subject_scope_sets_and_resets() -> None:
     assert current_subject.get() is None  # always reset, even though no token juggling
 
 
+def test_request_context_scope_sets_clears_and_is_exception_safe() -> None:
+    from apparitor.mapping import current_request_context, request_context_scope
+
+    assert current_request_context.get() is None
+
+    ctx = {"conversation_id": "c-42", "user_id": "alice@acme.com"}
+    with request_context_scope(ctx):
+        assert current_request_context.get() == ctx
+
+    # Cleared after normal exit.
+    assert current_request_context.get() is None
+
+    # Also cleared when the block raises.
+    try:
+        with request_context_scope({"x": "y"}):
+            assert current_request_context.get() == {"x": "y"}
+            raise RuntimeError("boom")
+    except RuntimeError:
+        pass
+    assert current_request_context.get() is None
+
+
 def test_non_json_arguments_are_made_safe(make_config) -> None:
     # A non-JSON value (a set) must not crash serialisation; it is stringified.
     cfg = make_config(redact_arguments=False)
