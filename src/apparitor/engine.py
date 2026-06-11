@@ -39,9 +39,12 @@ from .models import (
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    import httpx
+
     from .backends import DecisionBackend
     from .config import ScannerConfig
     from .mapping import ToolCallMapper
+    from .metrics import MetricsSink
 
 #: Predicate over a PDP response ``context`` that may escalate (never downgrade) a verdict.
 ReviewPredicate = Callable[[dict[str, Any]], bool]
@@ -443,3 +446,46 @@ def _reason_for(verdict: Verdict) -> str:
     if verdict is Verdict.HUMAN_REVIEW:
         return "authorization requires human review"
     return _DENY_REASON
+
+
+#: Error message for the workload namespace guard (shared by all adapters).
+#: The "workload" type is reserved for verified client-credentials tokens (FastMCP) so
+#: minting claim-derived, static, or boundary principals in that namespace would alias
+#: machine policies on a shared PDP.
+WORKLOAD_RESERVED_MSG = 'subject type "workload" is reserved for verified client-credentials tokens'
+
+
+def build_engine(
+    pdp_url: str | None,
+    config: ScannerConfig | None,
+    *,
+    http_client: httpx.AsyncClient | None = None,
+    mapper: ToolCallMapper | None = None,
+    review_predicate: ReviewPredicate | None = None,
+    metrics: MetricsSink | None = None,
+) -> tuple[ScannerConfig, AuthorizationEngine]:
+    """Shared constructor prologue for every adapter.
+
+    Resolves the (pdp_url, config) mutual-exclusion and constructs the backend and engine
+    in one place so the four adapters stay DRY. Returns both the resolved config (adapters
+    need it for their own settings) and the constructed engine.
+
+    Raises :class:`~apparitor.errors.AuthZENConfigError` when neither ``pdp_url`` nor
+    ``config`` is provided (previously ``ValueError``; changed pre-1.0 for consistency with
+    the rest of the package's error hierarchy).
+    """
+    if config is None:
+        if pdp_url is None:
+            raise AuthZENConfigError("provide either pdp_url or config")
+        from .config import ScannerConfig as _SC
+
+        config = _SC(pdp_url=pdp_url)
+    backend = build_backend(config, http_client=http_client)
+    engine = AuthorizationEngine(
+        config,
+        client=backend,
+        mapper=mapper,
+        review_predicate=review_predicate,
+        metrics=metrics,
+    )
+    return config, engine

@@ -16,6 +16,14 @@ All notable changes to this project are documented here. The format follows
   requiring a CHANGELOG "Update log parsers" entry and a version bump.
 
 ### Changed
+- **`AuthZENConfigError` now also inherits `ValueError` for backward compatibility.**
+  Adapter constructors previously raised plain `ValueError` for misconfiguration (missing
+  PDP URL, reserved subject type, invalid label). Code catching `except ValueError` still
+  catches these; code that was already catching `except AuthZENConfigError` is unaffected.
+  Pre-1.0 decision: keeping the mixin avoids a breaking change for callers that only
+  imported the public error hierarchy after the fact. Update existing `except ValueError`
+  handlers that handle only configuration errors to catch `AuthZENConfigError` instead for
+  precision.
 - **Audit-log message prefixes normalized `authzen` → `apparitor`** to match the logger
   name and project name. Field names and grammar are unchanged. **Update log parsers**
   anchoring on the old `authzen decision`, `authzen batch`, or `authzen per-item`

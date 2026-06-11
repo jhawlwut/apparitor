@@ -85,8 +85,14 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from .config import ScannerConfig
-from .decision import Verdict, VerdictResult, VerdictStatus
-from .engine import AuthorizationEngine, ReviewPredicate
+from .decision import (
+    DUAL_PRINCIPAL_CACHE_WARNING,
+    Verdict,
+    VerdictResult,
+    is_allowed_gateway,
+    record_pre_engine_refusal,
+)
+from .engine import WORKLOAD_RESERVED_MSG, ReviewPredicate, build_engine
 from .errors import AuthZENConfigError, MissingDependencyError
 from .mapping import build_boundary_leg, request_context_attrs
 from .models import Action, EvaluationRequest, Resource, Subject
@@ -121,12 +127,6 @@ def _refusal(verdict: VerdictResult | None) -> str:
     return "agent invocation not authorized"
 
 
-def _is_allowed(verdict: VerdictResult) -> bool:
-    """Only a clean ALLOW executes; exactly one request is always submitted, so SKIP
-    could only mean nothing was evaluated — executing on it would be a bypass."""
-    return verdict.status is not VerdictStatus.ERROR and verdict.verdict is Verdict.ALLOW
-
-
 class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk may be absent in the lint env (base is Any)
     """Authorizes A2A invocations against an AuthZEN PDP before the wrapped executor runs.
 
@@ -159,21 +159,19 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
         review_predicate: ReviewPredicate | None = None,
         metrics: MetricsSink | None = None,
     ) -> None:
+        # Resolve config first so workload guards can check config.subject_type.
         if config is None:
             if pdp_url is None:
-                raise ValueError("provide either pdp_url or config")
+                raise AuthZENConfigError("provide either pdp_url or config")
             config = ScannerConfig(pdp_url=pdp_url)
-        # Reserved by the FastMCP adapter for verified client-credentials tokens;
-        # minting other principals in that namespace (including via the static fallback's
-        # config.subject_type) would alias machine policies on a shared PDP.
+        # Reserved for verified client-credentials tokens (see apparitor.fastmcp);
+        # minting principals in that namespace would alias machine policies on a shared PDP.
         if subject_type == "workload" or (
             allow_static_subject and config.subject_type == "workload"
         ):
-            raise ValueError('subject type "workload" is reserved')
+            raise AuthZENConfigError(WORKLOAD_RESERVED_MSG)
         if boundary_subject is not None and boundary_subject.type == "workload":
-            # Reserved for verified client-credentials tokens (see apparitor.fastmcp);
-            # a static boundary principal in that namespace would alias machine policies.
-            raise ValueError('subject type "workload" is reserved')
+            raise AuthZENConfigError(WORKLOAD_RESERVED_MSG)
         label = agent_label.strip()
         if not label or "/" in label:
             raise ValueError("agent_label must be non-empty and contain no '/'")
@@ -184,17 +182,15 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
         self._subject_type = subject_type
         self._allow_static_subject = allow_static_subject
         self._boundary_subject = boundary_subject
-        from .backends import build_backend
-
-        backend = build_backend(config, http_client=http_client)
-        self._engine = AuthorizationEngine(
-            config, client=backend, review_predicate=review_predicate, metrics=metrics
+        _, self._engine = build_engine(
+            None,  # config already resolved above
+            config,
+            http_client=http_client,
+            review_predicate=review_predicate,
+            metrics=metrics,
         )
         if boundary_subject is not None and config.cache_enabled:
-            logger.warning(
-                "apparitor: dual-principal evaluation always batches, so the ALLOW cache"
-                " (cache_enabled=True) will never be consulted"
-            )
+            logger.warning(DUAL_PRINCIPAL_CACHE_WARNING)
         logger.info(
             "apparitor: A2A executor gating agent.invoke for %r%s",
             label,
@@ -216,15 +212,15 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
             # Defense in depth: an adapter-level fault must refuse, never execute. The
             # generic message is deliberate — exception text reaches the calling agent.
             logger.exception("apparitor: A2A authorization executor error (refusing)")
-            self._record_refusal()
+            record_pre_engine_refusal(self._engine.metrics)
             raise InvalidRequestError(message=_refusal(None)) from None
-        if verdict is not None and _is_allowed(verdict):
+        if verdict is not None and is_allowed_gateway(verdict):
             await self._delegate.execute(context, event_queue)
             return
         if verdict is None:
             # No resolvable subject: the engine never ran; count the refusal so an
             # all-misconfigured fleet doesn't show zero decisions.
-            self._record_refusal()
+            record_pre_engine_refusal(self._engine.metrics)
         raise InvalidRequestError(message=_refusal(verdict))
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
@@ -306,13 +302,6 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
         if tenant:
             attrs["tenant"] = tenant
         return attrs or None
-
-    def _record_refusal(self) -> None:
-        """Count a pre-engine refusal as a BLOCK+ERROR decision (best-effort, isolated)."""
-        try:
-            self._engine.metrics.record_decision(verdict="block", status="error", latency_s=0.0)
-        except Exception:
-            logger.exception("apparitor: refusal metric emission failed (verdict unaffected)")
 
     async def aclose(self) -> None:
         """Release the underlying PDP client (the host owns executor teardown).
