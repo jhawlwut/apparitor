@@ -160,6 +160,8 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
         metrics: MetricsSink | None = None,
     ) -> None:
         # Resolve config first so workload guards can check config.subject_type.
+        if pdp_url is not None and config is not None:
+            raise AuthZENConfigError("provide pdp_url or config, not both")
         if config is None:
             if pdp_url is None:
                 raise AuthZENConfigError("provide either pdp_url or config")
