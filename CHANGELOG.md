@@ -22,11 +22,6 @@ All notable changes to this project are documented here. The format follows
   `DUAL_PRINCIPAL_CACHE_WARNING` are shared helpers in `apparitor.decision` (lowest-common
   import, engine-free and host-SDK-free to avoid import cycles); their divergent SKIP
   behaviour and the `is not None` batch-item merge semantics are pinned by tests.
-- **Audit-log message prefixes normalized `authzen` → `apparitor`** to match the logger
-  name and project name. Field names and grammar are unchanged. **Update log parsers**
-  anchoring on the old `authzen decision`, `authzen batch`, or `authzen per-item`
-  prefixes — replace with `apparitor decision`, `apparitor batch`,
-  `apparitor per-item`.
 
 ## [0.1.0] - 2026-06-11
 
