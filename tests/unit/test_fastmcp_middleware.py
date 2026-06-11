@@ -715,8 +715,6 @@ async def test_boundary_resource_read_denied_when_boundary_denies(make_config, r
     async with guard:
         with subject_scope(_ALICE):
             async with Client(_server(guard)) as client:
-                from fastmcp.exceptions import McpError
-
                 with pytest.raises(McpError, match="not authorized"):
                     await client.read_resource("resource://config")
 
@@ -747,8 +745,6 @@ async def test_boundary_prompt_get_denied_when_boundary_denies(make_config, resp
     async with guard:
         with subject_scope(_ALICE):
             async with Client(_server(guard)) as client:
-                from fastmcp.exceptions import McpError
-
                 with pytest.raises(McpError, match="not authorized"):
                     await client.get_prompt("greet", {"name": "Bo"})
 
@@ -804,8 +800,6 @@ async def test_boundary_collapse_guard_resource_refuses_without_pdp(
         async with guard:
             with subject_scope(_ALICE):
                 async with Client(_server(guard)) as client:
-                    from fastmcp.exceptions import McpError
-
                     with pytest.raises(McpError, match="not authorized"):
                         await client.read_resource("resource://config")
     assert route.call_count == 0
@@ -827,8 +821,6 @@ async def test_boundary_collapse_guard_prompt_refuses_without_pdp(
         async with guard:
             with subject_scope(_ALICE):
                 async with Client(_server(guard)) as client:
-                    from fastmcp.exceptions import McpError
-
                     with pytest.raises(McpError, match="not authorized"):
                         await client.get_prompt("greet", {"name": "Bo"})
     assert route.call_count == 0
@@ -844,8 +836,6 @@ async def test_boundary_unresolvable_subject_refuses_resource_without_pdp(
     route = respx_mock.post(_BATCH_URL)
     guard = FastMCPAuthorizationMiddleware(config=make_config(), boundary_subject=_BOUNDARY)
     async with guard, Client(_server(guard)) as client:
-        from fastmcp.exceptions import McpError
-
         with pytest.raises(McpError, match="not authorized"):
             await client.read_resource("resource://config")
     assert route.call_count == 0
@@ -859,8 +849,6 @@ async def test_boundary_unresolvable_subject_refuses_prompt_without_pdp(
     route = respx_mock.post(_BATCH_URL)
     guard = FastMCPAuthorizationMiddleware(config=make_config(), boundary_subject=_BOUNDARY)
     async with guard, Client(_server(guard)) as client:
-        from fastmcp.exceptions import McpError
-
         with pytest.raises(McpError, match="not authorized"):
             await client.get_prompt("greet", {"name": "Bo"})
     assert route.call_count == 0
