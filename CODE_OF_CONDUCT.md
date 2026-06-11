@@ -10,7 +10,9 @@ other project space — to be respectful, welcoming, and constructive.
 
 ## Reporting
 
-To raise a concern, open a private report via GitHub Security Advisories
-(<https://github.com/jhawlwut/apparitor/security/advisories/new>) or contact the
-repository owner [@jhawlwut](https://github.com/jhawlwut) directly. Reports are handled
-confidentially and reviewed promptly.
+To raise a conduct concern, email the maintainer directly at
+<jonnyhawley@gmail.com>. Reports are handled confidentially and reviewed
+promptly.
+
+Security vulnerabilities (not conduct issues) belong in GitHub Security
+Advisories: <https://github.com/jhawlwut/apparitor/security/advisories/new>.
