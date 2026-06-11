@@ -5,7 +5,7 @@
 [![CodeQL](https://github.com/jhawlwut/apparitor/actions/workflows/codeql.yml/badge.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/codeql.yml)
 [![pip-audit](https://github.com/jhawlwut/apparitor/actions/workflows/pip-audit.yml/badge.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/pip-audit.yml)
 [![Aikido Security](https://img.shields.io/badge/Aikido%20Security-scanned%20daily-4c1?logo=aikido&logoColor=white)](https://app.aikido.dev/repositories/2253820/checks)
-[![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen.svg)](pyproject.toml)
+[![Coverage](https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
@@ -65,7 +65,21 @@ Agent: "Delete the production database"
    BLOCK — "agent travel-bot-123 is not authorized for tool_call.execute on database.delete_table"
 ```
 
-## Quickstart (target API — wiring is ≤10 lines)
+## Installation
+
+```bash
+pip install apparitor                       # AuthZEN client + models, no firewall dependency
+pip install "apparitor[llamafirewall]"      # LlamaFirewall scanner (pulls torch / ML stack)
+pip install "apparitor[nemo]"              # NeMo Guardrails rail
+pip install "apparitor[fastmcp]"           # FastMCP server middleware
+pip install "apparitor[a2a]"               # A2A agent-executor adapter
+pip install "apparitor[cedar]"             # in-process Cedar backend (cedarpy, no server)
+```
+
+> **Note:** `[llamafirewall]` pulls LlamaFirewall's ML dependencies (torch, PromptGuard).
+> The bare install and all other extras work without it.
+
+## Quickstart
 
 apparitor ships today as a LlamaFirewall scanner and a NeMo Guardrails rail
 (`NeMoAuthorizationRails`). The LlamaFirewall path: point the scanner at any
