@@ -9,6 +9,7 @@ converts the verdict into a LlamaFirewall ``ScanResult`` at the boundary.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Callable
@@ -96,7 +97,8 @@ class AuthorizationEngine:
         try:
             normalized = [_normalize(raw) for raw in tool_calls]
         except _UnparseableToolCall as exc:
-            result = VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR)
+            logger.warning("apparitor: unparseable tool call, blocking (%s)", exc)
+            result = VerdictResult(Verdict.BLOCK, _DENY_REASON, VerdictStatus.ERROR)
             self._emit(result, [], 0.0)  # fail closed, still counted in metrics
             return result
         return await self.evaluate_normalized(normalized, request_context)
@@ -111,6 +113,9 @@ class AuthorizationEngine:
         The seam for enforcement points that receive tool calls in structured form (e.g.
         an MCP ``tools/call`` request): they construct :class:`NormalizedToolCall` directly
         instead of round-tripping a provider-shaped dict through adapter detection.
+
+        ``asyncio.CancelledError`` propagates — an unfinished scan is non-authorized
+        (fail-closed at the caller's boundary).
         """
         if not calls:  # nothing to authorize — no decision to time or count
             return VerdictResult(Verdict.SKIP, _SKIP_REASON, VerdictStatus.SKIPPED)
@@ -128,6 +133,9 @@ class AuthorizationEngine:
         resource reads and prompt gets): the adapter shapes the AuthZEN tuple itself —
         including the trusted subject — and still gets the engine's fail-closed error
         tables, ALLOW-only cache, metrics and decision log.
+
+        ``asyncio.CancelledError`` propagates — an unfinished scan is non-authorized
+        (fail-closed at the caller's boundary).
         """
         if not requests:  # nothing to authorize — no decision to time or count
             return VerdictResult(Verdict.SKIP, _SKIP_REASON, VerdictStatus.SKIPPED)
@@ -201,7 +209,7 @@ class AuthorizationEngine:
             # Our misconfiguration (e.g. no subject) — fail closed, loudly. The warning is
             # the operator's only signal: no request was built, so no decision log follows.
             logger.warning("apparitor: mapping failed, blocking (%s)", exc)
-            return VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR), []
+            return VerdictResult(Verdict.BLOCK, _DENY_REASON, VerdictStatus.ERROR), []
         except Exception as exc:
             # A buggy custom mapper must fail closed here exactly as it does on the
             # per-item path — the engine never raises, never allows on error.
@@ -216,20 +224,33 @@ class AuthorizationEngine:
         """Evaluate with the fail-closed error tables (never raises, never ALLOW on error)."""
         try:
             return await self._evaluate(requests)
+        except asyncio.CancelledError:
+            # CancelledError is a BaseException, so the `except Exception` below would not
+            # catch it — a mid-PDP cancellation would produce no verdict at all, which is
+            # indistinguishable from ALLOW at the caller.  Record the fault metric so ops
+            # can observe the interruption, then re-raise: structured concurrency requires
+            # CancelledError to propagate (callers must treat an unfinished scan as denied).
+            self.metrics.record_decision(
+                verdict=Verdict.BLOCK.value, status=VerdictStatus.ERROR.value, latency_s=0.0
+            )
+            raise
         except Exception as exc:
             return self._fault_verdict(exc)
 
     def _fault_verdict(self, exc: Exception) -> VerdictResult:
         """The one fail-closed error table, shared by every evaluation path."""
         if isinstance(exc, AuthZENClientError):
-            return VerdictResult(Verdict.BLOCK, f"{_DENY_REASON} ({exc})", VerdictStatus.ERROR)
+            # Log the detail (status code, PDP rejection reason) for operator diagnostics;
+            # the returned reason stays generic — exc text can embed the PDP URL or host.
+            logger.warning("apparitor: PDP client error, blocking (%s)", exc)
+            return VerdictResult(Verdict.BLOCK, _DENY_REASON, VerdictStatus.ERROR)
         if isinstance(exc, AuthZENServiceError):
-            verdict = resolve_error(self._config.on_error, f"PDP unavailable: {exc}")
-            logger.warning("apparitor: PDP error, resolved as %s", verdict.verdict.value)
-            return verdict
+            # exc carries transport/timeout/malformed detail — operator log only (§3.10).
+            logger.warning("apparitor: PDP error, resolved as on_error (%s)", exc)
+            return resolve_error(self._config.on_error, _DENY_REASON)
         # Defense in depth: any unexpected internal error fails closed, never ALLOW.
         logger.exception("apparitor: unexpected internal error during evaluation")
-        return VerdictResult(Verdict.BLOCK, f"{_DENY_REASON} (internal error)", VerdictStatus.ERROR)
+        return VerdictResult(Verdict.BLOCK, _DENY_REASON, VerdictStatus.ERROR)
 
     async def _decide_each(
         self, calls: list[NormalizedToolCall], ctx: Mapping[str, Any]
@@ -240,7 +261,7 @@ class AuthorizationEngine:
             if isinstance(exc, AuthZENConfigError):
                 # No requests were built, so no decision log follows — warn or it's invisible.
                 logger.warning("apparitor: mapping failed, blocking all items (%s)", exc)
-                failed = VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR)
+                failed = VerdictResult(Verdict.BLOCK, _DENY_REASON, VerdictStatus.ERROR)
             else:
                 failed = self._fault_verdict(exc)
             return [failed] * len(calls)
