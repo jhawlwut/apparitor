@@ -49,7 +49,18 @@ Status legend: ✅ done · 🔜 next · 📋 planned.
 
 ## 📋 M4 — Hardening & first release
 
-- Independent security review against the threat model.
+- ✅ **Internal adversarial security review** ([`docs/security-review.md`](docs/security-review.md)):
+  three attacker-focused slices (core engine + transport; mapping layer + four enforcement
+  adapters; configuration + supply chain), static analysis plus concrete repro probes,
+  reviewed against the full threat model. Six findings — one HIGH, three MEDIUM, two LOW —
+  all fixed on the `fix/security-hardening` branch. Positive properties (fail-closed on
+  every error path, subject isolation, cache safety, SSRF guard, dual-principal AND
+  semantics) verified sound. No open P0/P1 findings in the documented review.
+- 🔜 **Independent third-party security review** (post-public, adoption-gated): the
+  internal review is the current assurance baseline; an independent external review is a
+  goal for after the project has public users. Pursued through the free avenues available
+  to open source: a **GitHub Security Lab** review request and a **Sentry open-source
+  sponsorship** application. Both are tracked as TODOs, not release-gating items.
 - Documentation site. ✅ Example scenarios as runnable demos (`examples/scenarios/`).
 - ✅ Audit-log schema frozen as a stability contract (`docs/audit-log.md`): logger,
   levels, C1/C2/C3 field grammar, parsing guidance, stability policy, pinned by
@@ -63,7 +74,14 @@ Status legend: ✅ done · 🔜 next · 📋 planned.
   library's scope. High-risk obligations apply from **2 August 2026**.
 
 **Acceptance:** a tagged `0.1.0` on PyPI, green release pipeline, no open P0/P1
-security findings.
+findings in the documented internal review. An independent third-party audit is a
+post-adoption goal, not a `0.1.0` blocker.
+
+**Project status & resourcing:** this is a solo-maintained open-source project; cadence
+is best-effort. Security-review depth and external audits scale with adoption and
+sponsorship. The current assurance baseline is the documented threat model
+([`docs/requirements.md`](docs/requirements.md)), the tested invariants in the unit
+suite, and the internal adversarial review linked above.
 
 ## Beyond v0.1 — the aggregator
 
