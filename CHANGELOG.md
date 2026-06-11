@@ -9,7 +9,9 @@ All notable changes to this project are documented here. The format follows
 ### Added
 - **Audit-log schema frozen as a stability contract (`docs/audit-log.md`).** Logger,
   levels, C1/C2/C3 line grammar (format strings, field tables, rendered examples),
-  fingerprint derivation, parsing guidance, and stability policy. Pinned by
+  fingerprint derivation, parsing guidance, timestamp/clock requirements, an EU
+  regulatory mapping (AI Act record-keeping and retention, GDPR handling, transfer
+  routing), and stability policy. Pinned by
   `tests/unit/test_log_contract.py` — a failure there is a breaking log-schema change
   requiring a CHANGELOG "Update log parsers" entry and a version bump.
 
