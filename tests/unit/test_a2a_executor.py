@@ -727,3 +727,31 @@ def test_boundary_cache_warning_emitted(make_config, caplog) -> None:
             http_client=_BatchPDP().client(),
         )
     assert "never be consulted" in caplog.text
+
+
+# --- gateway predicate (is_allowed_gateway, not is_allowed_inline) -------------------
+
+
+@pytest.mark.asyncio
+async def test_skip_verdict_refuses_at_gateway_boundary(make_config) -> None:
+    # A SKIP verdict at a network boundary means the engine received an empty request
+    # list — an unexpected state that must refuse, not pass through.  This pin ensures
+    # the A2A executor uses is_allowed_gateway (SKIP → refuse) rather than
+    # is_allowed_inline (SKIP → pass through), which would be an authorization bypass
+    # whenever the engine is coerced into returning SKIP on a submitted call.
+    from unittest.mock import AsyncMock, patch
+
+    from apparitor.decision import Verdict, VerdictResult, VerdictStatus
+
+    skip_result = VerdictResult(
+        verdict=Verdict.SKIP, reason="no requests", status=VerdictStatus.SKIPPED
+    )
+    pdp = _PDP(decision=True)
+    delegate = _EchoExecutor()
+    guard = _guarded(delegate, pdp, make_config)
+    client = _a2a_client(guard, _ContextBuilder(user=_Peer("planner-agent")))
+    async with guard:
+        with patch.object(guard._engine, "evaluate_requests", AsyncMock(return_value=skip_result)):
+            with pytest.raises(Exception, match="not authorized"):
+                await _send(client)
+    assert delegate.executed == 0  # SKIP must not reach the delegate
