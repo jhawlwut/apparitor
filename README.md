@@ -247,6 +247,7 @@ config (`backend="opa"` / `backend="cedar"`):
 - [Technical requirements & design decisions](docs/requirements.md)
 - [Architecture](docs/architecture.md)
 - [Setup: connecting to a policy engine](docs/setup.md)
+- [EU AI Act / CADA compliance reference](docs/eu-ai-act.md)
 - [Roadmap](ROADMAP.md)
 - [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
 
