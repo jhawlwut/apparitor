@@ -12,12 +12,13 @@ Provide a LlamaFirewall `Scanner` that authorizes an agent's tool calls against 
 AuthZEN 1.0 PDP and returns `ALLOW` / `BLOCK` / `HUMAN_IN_THE_LOOP_REQUIRED`.
 
 **In scope:** the scanner, the AuthZEN client + models, tool-call extraction, mapping,
-caching, configuration, and examples for OpenFGA / Cedar / OPA / a mock PDP (Cerbos and
-Amazon Verified Permissions also work and may be added).
+caching, configuration, examples for OpenFGA / Cedar / OPA / a mock PDP (Cerbos and
+Amazon Verified Permissions also work and may be added), the NeMo Guardrails rail
+(`apparitor.nemo`), the FastMCP server middleware (`apparitor.fastmcp`), and the A2A
+executor (`apparitor.a2a`).
 
 **Out of scope** (documented, deferred): control-plane decision-log emission, OPA
-bundles, NeMo Guardrails / Microsoft Agent Governance rails, natural-language policy
-authoring.
+bundles, Microsoft Agent Governance rails, natural-language policy authoring.
 
 ## 2. Interfaces we build against
 
