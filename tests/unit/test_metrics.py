@@ -158,7 +158,7 @@ async def test_all_abstain_records_a_skip_decision_but_no_log(
 
     assert metrics.decisions == {("skip", "skipped"): 1}
     assert metrics.latency_count == 1
-    assert "authzen decision" not in caplog.text
+    assert "apparitor decision" not in caplog.text
 
 
 @pytest.mark.asyncio

@@ -176,7 +176,7 @@ class AuthorizationEngine:
             if requests:
                 self._log(result, requests, latency_s)
         except Exception:
-            logger.exception("authzen: metrics/log emission failed (verdict unaffected)")
+            logger.exception("apparitor: metrics/log emission failed (verdict unaffected)")
 
     def _record_cache(self, *, hit: bool) -> None:
         """Record a cache outcome, isolated so a faulty sink can't alter the verdict.
@@ -187,7 +187,7 @@ class AuthorizationEngine:
         try:
             self.metrics.record_cache(hit=hit)
         except Exception:
-            logger.exception("authzen: cache metric emission failed (verdict unaffected)")
+            logger.exception("apparitor: cache metric emission failed (verdict unaffected)")
 
     async def _decide(
         self, tool_calls: list[NormalizedToolCall], ctx: Mapping[str, Any]
@@ -197,7 +197,7 @@ class AuthorizationEngine:
         except AuthZENConfigError as exc:
             # Our misconfiguration (e.g. no subject) — fail closed, loudly. The warning is
             # the operator's only signal: no request was built, so no decision log follows.
-            logger.warning("authzen: mapping failed, blocking (%s)", exc)
+            logger.warning("apparitor: mapping failed, blocking (%s)", exc)
             return VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR), []
         except Exception as exc:
             # A buggy custom mapper must fail closed here exactly as it does on the
@@ -222,10 +222,10 @@ class AuthorizationEngine:
             return VerdictResult(Verdict.BLOCK, f"{_DENY_REASON} ({exc})", VerdictStatus.ERROR)
         if isinstance(exc, AuthZENServiceError):
             verdict = resolve_error(self._config.on_error, f"PDP unavailable: {exc}")
-            logger.warning("authzen: PDP error, resolved as %s", verdict.verdict.value)
+            logger.warning("apparitor: PDP error, resolved as %s", verdict.verdict.value)
             return verdict
         # Defense in depth: any unexpected internal error fails closed, never ALLOW.
-        logger.exception("authzen: unexpected internal error during evaluation")
+        logger.exception("apparitor: unexpected internal error during evaluation")
         return VerdictResult(Verdict.BLOCK, f"{_DENY_REASON} (internal error)", VerdictStatus.ERROR)
 
     async def _decide_each(
@@ -236,7 +236,7 @@ class AuthorizationEngine:
         except Exception as exc:  # incl. AuthZENConfigError — a mapper fault blocks every item
             if isinstance(exc, AuthZENConfigError):
                 # No requests were built, so no decision log follows — warn or it's invisible.
-                logger.warning("authzen: mapping failed, blocking all items (%s)", exc)
+                logger.warning("apparitor: mapping failed, blocking all items (%s)", exc)
                 failed = VerdictResult(Verdict.BLOCK, str(exc), VerdictStatus.ERROR)
             else:
                 failed = self._fault_verdict(exc)
@@ -300,12 +300,12 @@ class AuthorizationEngine:
                     verdict=result.verdict.value, status=result.status.value, latency_s=latency_s
                 )
             logger.info(
-                "authzen per-item decisions verdicts=%s latency_ms=%.1f",
+                "apparitor per-item decisions verdicts=%s latency_ms=%.1f",
                 [r.verdict.value for r in results],
                 latency_s * 1000,
             )
         except Exception:
-            logger.exception("authzen: metrics/log emission failed (verdict unaffected)")
+            logger.exception("apparitor: metrics/log emission failed (verdict unaffected)")
 
     def _build_requests(
         self, tool_calls: list[NormalizedToolCall], ctx: Mapping[str, Any]
@@ -360,7 +360,7 @@ class AuthorizationEngine:
                 for r, item in zip(requests, response.evaluations, strict=True)
                 if not item.decision
             ]
-            logger.info("authzen batch denied_legs=%s", denied)
+            logger.info("apparitor batch denied_legs=%s", denied)
         # Apply the review predicate per item and escalate the aggregate (escalation can
         # never downgrade a BLOCK), so HUMAN_REVIEW is reachable on multi-call messages too.
         if any(self._wants_review(item.context) for item in response.evaluations):
@@ -385,7 +385,7 @@ class AuthorizationEngine:
         """
         correlation = (requests[0].context or {}).get("correlation_id")
         logger.info(
-            "authzen decision verdict=%s status=%s subjects=%s correlation=%s "
+            "apparitor decision verdict=%s status=%s subjects=%s correlation=%s "
             "resources=%s fingerprints=%s latency_ms=%.1f",
             result.verdict.value,
             result.status.value,
