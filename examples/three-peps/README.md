@@ -27,7 +27,8 @@ delete_database  -> BLOCK
 From the repo root:
 
 ```bash
-pip install -e ".[llamafirewall,nemo,fastmcp,cedar]"   # CPU-only torch: see ci.yml
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -e ".[llamafirewall,nemo,fastmcp,cedar]"
 python examples/three-peps/demo.py
 ```
 
