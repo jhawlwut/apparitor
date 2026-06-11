@@ -13,6 +13,8 @@ All notable changes to this project are documented here. The format follows
   leak a prior request's injected context into a later request on a reused task/loop. This
   is now the preferred pattern over calling `.set()/.reset()` directly (documented in
   `docs/setup.md`).
+- **Internal adversarial security review** (`docs/security-review.md`): scope, methodology,
+  findings table, verified-sound properties, known limitations, and re-review triggers.
 
 ### Security
 - **Duplicate JSON key in PDP response now fails closed (§3.6).** `json.loads` collapses
@@ -40,6 +42,13 @@ All notable changes to this project are documented here. The format follows
   ops) and immediately re-raises, preserving structured-concurrency invariants. The public
   `evaluate_normalized` and `evaluate_requests` docstrings now note that `CancelledError`
   propagates and callers must treat an unfinished scan as non-authorized.
+- **Cedar `_entity_uid` hardened to reject backslash and control characters.** Previously
+  only double-quotes were explicitly rejected; a backslash or control character in an
+  identifier also breaks the Cedar string literal (`Agent::"foo\nbar"`). The engine already
+  failed closed on a Cedar parse error (NoDecision → BLOCK), but the rejection is now
+  explicit and reported at the validation seam.
+- **`.env` added to `.gitignore`; `llamafirewall` extra capped at `<1`.** Prevents
+  accidental credential commits and pins the audited major version of the ML stack.
 
 ### Changed
 - **`AuthZENConfigError` now also inherits `ValueError` for backward compatibility.**
