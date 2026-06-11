@@ -115,7 +115,6 @@ include = [
   "src/",
   "tests/",
   "docs/",
-  "scripts/",
   "examples/",
   "LICENSE",
   "NOTICE",
