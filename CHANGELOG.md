@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Runnable MCP authorization-gateway example (`examples/gateway/`).** FastMCP proxy
+  fronting an unmodifiable upstream, middleware enforcing at the chokepoint: denied calls
+  proven never to reach the upstream, listing filtered to hide what the subject may not
+  call. Exercised on both supported fastmcp lines by the `gateway-demo` CI job.
 - **Runnable scenario walk-through (`examples/scenarios/`).** Dependency-free (core install
   only) self-asserting script over the mock PDP covering seven scenarios: allow, deny
   (2-part deny key), unparseable input fails closed, PDP unreachable with `on_error=deny`,
