@@ -16,8 +16,12 @@ behind a gateway.
 ## Installation
 
 ```bash
-pip install "apparitor[llamafirewall]"   # scanner + LlamaFirewall
-pip install apparitor                    # AuthZEN client/models only
+pip install apparitor                       # AuthZEN client + models, no firewall dependency
+pip install "apparitor[llamafirewall]"      # LlamaFirewall scanner (pulls torch / ML stack)
+pip install "apparitor[nemo]"              # NeMo Guardrails rail
+pip install "apparitor[fastmcp]"           # FastMCP server middleware
+pip install "apparitor[a2a]"               # A2A agent-executor adapter
+pip install "apparitor[cedar]"             # in-process Cedar backend (cedarpy, no server)
 ```
 
 ## Authentication & TLS (bring-your-own httpx client)
@@ -108,6 +112,59 @@ surface may still change. Agent tool authorization maps cleanly onto OpenFGA's
 translates AuthZEN requests into Cedar `is_authorized` calls. The
 [`examples/cedar/`](../examples/cedar/) example runs Cedar locally behind such a gateway
 with sample policies.
+
+### Cedar native backend (`backend="cedar"`, `[cedar]` extra)
+
+The native backend evaluates Cedar policies **in-process** via `cedarpy` — no server, no
+gateway, no network. The decision never leaves the host, making this the sovereignty- and
+ops-lightest Cedar option.
+
+```python
+from apparitor import AuthZENScanner, ScannerConfig
+
+scanner = AuthZENScanner(
+    config=ScannerConfig(
+        backend="cedar",
+        cedar_policies_path="policies/authz.cedar",
+        cedar_entities_path="policies/entities.json",
+    )
+)
+```
+
+`cedar_policies_path` and `cedar_entities_path` are required; `cedar_schema_path` is
+optional (enables schema validation at startup). Policies and entities are loaded once at
+construction. See [`examples/cedar/`](../examples/cedar/) for a full worked example.
+
+## OPA / Rego (policy-as-code)
+
+OPA is reachable over AuthZEN via a gateway (e.g. [`kanywst/opa-authzen`](https://github.com/kanywst/opa-authzen)).
+The [`examples/opa/`](../examples/opa/) example runs OPA locally behind such a gateway
+with sample Rego policies.
+
+### OPA native backend (`backend="opa"`)
+
+The native backend talks OPA's Data API (`POST /v1/data/<path>`) directly — no AuthZEN
+gateway required. The same hardened transport (SSRF guard, TLS, bounded retries) used by
+the AuthZEN backend applies here.
+
+```python
+from apparitor import AuthZENScanner, ScannerConfig
+
+scanner = AuthZENScanner(
+    config=ScannerConfig(
+        backend="opa",
+        pdp_url="https://opa.internal:8181",
+        opa_decision_path="myorg/authz/allow",
+    )
+)
+```
+
+For a local OPA instance (`http://localhost:8181`) set `allow_insecure_pdp=True` — local development only.
+
+`opa_decision_path` must match your Rego package and boolean rule (e.g. package
+`myorg.authz`, rule `allow` → path `myorg/authz/allow`). The default matches the example
+policy in this repo. A non-matching path fails closed. See [`examples/opa/`](../examples/opa/)
+for a full worked example.
 
 ## Amazon Verified Permissions (managed Cedar)
 
