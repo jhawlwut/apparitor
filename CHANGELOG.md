@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Audit-log schema frozen as a stability contract (`docs/audit-log.md`).** Logger,
+  levels, C1/C2/C3 line grammar (format strings, field tables, rendered examples),
+  fingerprint derivation, parsing guidance, and stability policy. Pinned by
+  `tests/unit/test_log_contract.py` — a failure there is a breaking log-schema change
+  requiring a CHANGELOG "Update log parsers" entry and a version bump.
+
+### Changed
+- **Audit-log message prefixes normalized `authzen` → `apparitor`** to match the logger
+  name and project name. Field names and grammar are unchanged. **Update log parsers**
+  anchoring on the old `authzen decision `, `authzen batch `, or `authzen per-item `
+  prefixes — replace with `apparitor decision `, `apparitor batch `,
+  `apparitor per-item `.
 - **Runnable MCP authorization-gateway example (`examples/gateway/`).** FastMCP proxy
   fronting an unmodifiable upstream, middleware enforcing at the chokepoint: denied calls
   proven never to reach the upstream, listing filtered to hide what the subject may not
