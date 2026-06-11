@@ -215,10 +215,12 @@ To export, pass your own `MetricsSink` (forward to Prometheus/OpenTelemetry) or
 single-event-loop use; a long-lived server scraping it from another thread (or a sink shared
 across threads) must provide its own synchronisation — pass a thread-safe `MetricsSink`.
 Each decision also emits one structured audit log line (verdict,
-status, subject id, correlation id, tool names, and an argument *fingerprint*). Raw tool
+status, subject id, correlation id, resource ids, and an argument *fingerprint*). Raw tool
 arguments and tokens are never logged — arguments are fingerprinted. The subject id is the
 decision principal (with the FastMCP middleware that is the OAuth `sub`, which may be an
-email), so treat the `apparitor` logger as sensitive and route it accordingly.
+email), so treat the `apparitor` logger as sensitive and route it accordingly. The log
+format is a documented stability contract from `0.1.0` — see
+[docs/audit-log.md](docs/audit-log.md).
 
 ## What apparitor connects
 

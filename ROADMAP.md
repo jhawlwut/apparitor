@@ -51,6 +51,9 @@ Status legend: ✅ done · 🔜 next · 📋 planned.
 
 - Independent security review against the threat model.
 - Documentation site. ✅ Example scenarios as runnable demos (`examples/scenarios/`).
+- ✅ Audit-log schema frozen as a stability contract (`docs/audit-log.md`): logger,
+  levels, C1/C2/C3 field grammar, parsing guidance, stability policy, pinned by
+  `tests/unit/test_log_contract.py`.
 - `0.1.0` release to PyPI via OIDC trusted publishing; SHA-pinned CI actions; SBOM /
   dependency audit.
 
@@ -112,4 +115,5 @@ aggregator across the popular agentic firewalls and policy engines.
 
 Intentionally excluded for now and tracked separately: control-plane decision-log emission,
 OPA bundle distribution, a Microsoft Agent Governance capability check, and natural-language
-policy authoring.
+policy authoring. Structured log persistence, cross-session aggregation, retention, and
+compliance export — post-`v0.1`.
