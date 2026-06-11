@@ -110,7 +110,8 @@ path = "src/apparitor/__init__.py"
 
 [tool.hatch.build.targets.sdist]
 # Explicit include list so the sdist is reproducible and contains exactly what
-# is needed to rebuild the wheel and run the test suite from source.
+# is needed to rebuild the wheel and run the test suite from source, plus files
+# linked from README.md so relative links resolve for sdist extractors.
 include = [
   "src/",
   "tests/",
@@ -121,6 +122,8 @@ include = [
   "CHANGELOG.md",
   "README.md",
   "CONTRIBUTING.md",
+  "ROADMAP.md",
+  "SECURITY.md",
   "pyproject.toml",
 ]
 
