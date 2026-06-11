@@ -1,8 +1,7 @@
 # Examples
 
 Worked examples wiring the scanner to PDPs. The **mock PDP, OpenFGA, Cedar, OPA,
-and scenarios examples are runnable**; **three-peps** runs fully in-process. Both
-**three-peps** and **scenarios** are CI-gated with no Docker required. AVP remains a
+and scenarios examples are runnable**; **three-peps** runs fully in-process. **three-peps**, **gateway**, and **scenarios** are CI-gated with no Docker required. AVP remains a
 placeholder (see [`ROADMAP.md`](../ROADMAP.md) M4).
 
 | Directory | What it shows | Status |
@@ -13,6 +12,7 @@ placeholder (see [`ROADMAP.md`](../ROADMAP.md) M4).
 | [`opa/`](opa/) | OPA / Rego (policy-as-code) behind a local AuthZEN gateway | runnable |
 | [`three-peps/`](three-peps/) | One Cedar policy enforced at the scanner, the NeMo rail, and the FastMCP middleware (in-process, no Docker) | runnable |
 | [`avp/`](avp/) | Amazon Verified Permissions (managed Cedar) — later, cloud example | placeholder |
+| [`gateway/`](gateway/) | An authorization gateway in front of an MCP server you can't modify (proxy + middleware) | runnable |
 | [`scenarios/`](scenarios/) | Allow / deny / unparseable / PDP-unreachable (both on_error modes) / batch / dual-principal walk-through | runnable |
 
 The lead backends are **OpenFGA** (relationship-based) and **Cedar** (policy-as-code) —

@@ -106,6 +106,8 @@ can additionally hide unauthorized tools from `tools/list` with `filter_listings
 be authorized as distinct `workload` subjects via `allow_workload_subject=True`. Under
 server composition pin `server_label` for stable policy keys. FastMCP never tears
 middleware down, so call `await middleware.aclose()` on shutdown to release the PDP client.
+For a vendor MCP server you cannot modify, front it with a thin proxy you own and put the
+middleware on the proxy — see [`examples/gateway/`](examples/gateway/).
 
 At the **A2A boundary** the same engine guards agent-to-agent invocations — the subject
 is the authenticated peer the A2A server established, and the request's `tenant` is
