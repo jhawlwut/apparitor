@@ -39,6 +39,7 @@ from starlette.applications import Starlette  # noqa: E402
 
 from apparitor import Subject  # noqa: E402
 from apparitor.a2a import A2AAuthorizationExecutor  # noqa: E402
+from apparitor.errors import AuthZENConfigError  # noqa: E402
 from apparitor.mapping import subject_scope  # noqa: E402
 
 _ALICE = Subject(type="user", id="alice@acme.com")
@@ -161,11 +162,11 @@ async def _send(client: Any, tenant: str = "") -> list[Any]:
 
 def test_constructor_validates(make_config) -> None:
     delegate = _EchoExecutor()
-    with pytest.raises(ValueError, match="pdp_url or config"):
+    with pytest.raises(AuthZENConfigError, match="pdp_url or config"):
         A2AAuthorizationExecutor(delegate, agent_label="x")
-    with pytest.raises(ValueError, match="agent_label"):
+    with pytest.raises(AuthZENConfigError, match="agent_label"):
         A2AAuthorizationExecutor(delegate, config=make_config(), agent_label="a/b")
-    with pytest.raises(ValueError, match="reserved"):
+    with pytest.raises(AuthZENConfigError, match="reserved"):
         A2AAuthorizationExecutor(
             delegate, config=make_config(), agent_label="x", subject_type="workload"
         )

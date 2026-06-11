@@ -474,6 +474,8 @@ def build_engine(
     ``config`` is provided (previously ``ValueError``; changed pre-1.0 for consistency with
     the rest of the package's error hierarchy).
     """
+    if pdp_url is not None and config is not None:
+        raise AuthZENConfigError("provide pdp_url or config, not both")
     if config is None:
         if pdp_url is None:
             raise AuthZENConfigError("provide either pdp_url or config")
