@@ -270,3 +270,33 @@ def test_ssrf_guard_rejects_http_and_private_and_localhost() -> None:
     # public https hostname is allowed; insecure flag bypasses the guard
     validate_pdp_url("https://pdp.example.com", allow_insecure=False)
     validate_pdp_url("http://127.0.0.1:8080", allow_insecure=True)
+
+
+def test_ssrf_guard_accepts_public_ip_literal() -> None:
+    # The fall-through branch (a public IP literal that passes all is_private/is_loopback/
+    # etc. checks) must not raise.  8.8.8.8 is a globally-routable address; Python's
+    # ipaddress classifies it as neither private nor reserved.
+    validate_pdp_url("https://8.8.8.8/access/v1/evaluation", allow_insecure=False)
+
+
+@pytest.mark.asyncio
+async def test_batch_nested_duplicate_key_in_evaluations_entry_is_malformed(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    # A duplicate key *inside* one of the evaluation-array objects (not at the top level)
+    # must also trigger MalformedPDPResponseError — the object_pairs_hook fires recursively
+    # per JSON object, so this is already handled; this test pins that it stays covered.
+    from apparitor.models import BatchEvaluationRequest, EvaluationItem
+
+    respx_mock.post(_BATCH_URL).respond(
+        content=b'{"evaluations": [{"decision": false, "decision": true}]}',
+        headers={"content-type": "application/json"},
+    )
+    client = await _client(make_config, noop_sleep)
+    req = _request()
+    batch = BatchEvaluationRequest(
+        evaluations=[EvaluationItem(resource=req.resource, action=req.action, subject=req.subject)]
+    )
+    with pytest.raises(MalformedPDPResponseError, match="duplicate"):
+        await client.evaluate_batch(batch)
+    await client.aclose()
