@@ -6,6 +6,43 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **`request_context_scope(context)` context manager** (`apparitor.mapping`, exported from
+  `apparitor`). Mirrors `subject_scope`: binds `current_request_context` for the duration
+  of the `with` block and resets it in `finally`, so a host that forgets to reset cannot
+  leak a prior request's injected context into a later request on a reused task/loop. This
+  is now the preferred pattern over calling `.set()/.reset()` directly (documented in
+  `docs/setup.md`).
+- **Security posture & assurance document** (`docs/security-review.md`): standing
+  invariants, threat-model coverage, test citations, known limitations, and re-review
+  triggers — continuously scannable baseline.
+
+### Security
+- **PDP response parsing now rejects duplicate JSON keys (§3.6), failing closed with
+  `MalformedPDPResponseError`.** An `object_pairs_hook` in the new `_strict_json` helper
+  raises `MalformedPDPResponseError` on any duplicate key within a JSON object, closing a
+  response-validation gap at the PDP trust boundary. The fix applies to both the AuthZEN
+  transport and the OPA backend. Sibling objects in a batch response (multiple `"decision"`
+  fields in distinct array entries) are correctly not flagged — the check is per-object.
+- **Error-path `VerdictResult.reason` is now always a generic string (§3.10).** All
+  error-path verdicts use the fixed `_DENY_REASON` constant, ensuring internal detail
+  (exception text, transport state) is never exposed to callers. Exception detail continues
+  to appear in operator logs for diagnostics. The fix also adds log lines on early-return
+  paths that previously had none (unparseable tool call, 4xx client error).
+- **`asyncio.CancelledError` is now recorded in metrics before re-propagating.** A
+  dedicated `except asyncio.CancelledError` clause in `_evaluate_guarded` records a
+  `block/error` decision metric and immediately re-raises, preserving
+  structured-concurrency invariants. The public `evaluate_normalized` and
+  `evaluate_requests` docstrings note that `CancelledError` propagates and callers must
+  treat an unfinished scan as non-authorized.
+- **Cedar `_entity_uid` hardened to reject backslash and control characters.** The
+  rejection is now explicit at the validation seam (covering double-quote, backslash, and
+  control characters), so invalid identifiers are caught before Cedar processes them. The
+  engine already failed closed on a Cedar parse error (NoDecision → BLOCK); this makes
+  the boundary explicit.
+- **`.env` added to `.gitignore`; `llamafirewall` extra capped at `<1`.** Prevents
+  accidental credential commits and pins the audited major version of the ML stack.
+
 ### Changed
 - **`AuthZENConfigError` now also inherits `ValueError` for backward compatibility.**
   Adapter constructors previously raised plain `ValueError` for misconfiguration (missing

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 import random
 from typing import TYPE_CHECKING, Any, TypeVar
 from urllib.parse import urlparse
@@ -216,14 +217,43 @@ class AuthZENClient(HTTPDecisionTransport):
         return _parse(data, BatchEvaluationResponse)
 
 
+def _strict_json(raw: bytes) -> object:
+    """Parse JSON, raising ``MalformedPDPResponseError`` on duplicate keys.
+
+    ``json.loads`` uses last-wins for duplicate keys, so a body such as
+    ``{"decision": false, "decision": true}`` silently collapses to
+    ``{"decision": true}`` before pydantic's ``StrictBool`` validator runs —
+    coercing a contradictory/malformed response into an ALLOW.  An
+    ``object_pairs_hook`` that detects duplicate keys within each JSON object
+    closes that window.  Requirements §3.6: malformed 2xx → BLOCK.
+    """
+
+    def _reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        # A fresh dict tracks keys for THIS object only — sibling objects in a batch
+        # response legitimately reuse the same key names (e.g. multiple "decision" fields
+        # in the evaluations array are not duplicates — each is in its own JSON object).
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise MalformedPDPResponseError(
+                    f"PDP response contains duplicate JSON key: {key!r}"
+                )
+            result[key] = value
+        return result
+
+    try:
+        return json.loads(raw, object_pairs_hook=_reject_duplicates)
+    except MalformedPDPResponseError:
+        raise
+    except ValueError as exc:
+        raise MalformedPDPResponseError(f"PDP returned non-JSON body: {exc}") from exc
+
+
 def _handle_status(response: httpx.Response) -> object:
     """Return parsed JSON for ``2xx``; map ``4xx``/``5xx`` to typed errors."""
     code = response.status_code
     if 200 <= code < 300:
-        try:
-            return response.json()
-        except ValueError as exc:
-            raise MalformedPDPResponseError(f"PDP returned non-JSON body: {exc}") from exc
+        return _strict_json(response.content)
     if 300 <= code < 400:
         # Redirects are disabled; an unfollowed 3xx is treated as unavailable (fail closed),
         # never as a decision.

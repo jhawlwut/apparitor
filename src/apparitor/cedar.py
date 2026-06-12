@@ -53,10 +53,14 @@ _TYPE_MAP = {"agent": "Agent", "tool": "Tool"}
 
 
 def _entity_uid(kind: str, identifier: str) -> str:
-    # A double-quote would produce a malformed Cedar UID (Agent::"foo"bar"). Normalised tool
-    # names never contain quotes, so this only guards pathological input — reject (→ deny).
-    if '"' in identifier:
-        raise ValueError(f"identifier may not contain a double-quote: {identifier!r}")
+    # A double-quote, backslash, or control char in an identifier would break the Cedar string
+    # literal (e.g. Agent::"foo"bar", Agent::"foo\nbar").  The engine already fails closed on a
+    # parse error (NoDecision → BLOCK), but rejecting here makes the refusal explicit and cheap.
+    if any(c == '"' or c == "\\" or ord(c) <= 0x1F for c in identifier):
+        raise ValueError(
+            f"identifier contains a disallowed character (double-quote, backslash, or"
+            f" control char): {identifier!r}"
+        )
     return f'{_TYPE_MAP.get(kind, kind.title())}::"{identifier}"'
 
 
