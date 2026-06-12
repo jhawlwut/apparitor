@@ -992,3 +992,43 @@ async def test_cancelled_error_propagates_and_records_metric(
         v for (verdict, _status), v in metrics.decisions.items() if verdict == "block"
     )
     assert block_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_cancelled_error_propagates_and_records_metric(
+    make_config, noop_sleep
+) -> None:
+    import asyncio
+
+    from apparitor.backends import DecisionBackend
+    from apparitor.metrics import InMemoryMetrics
+    from apparitor.models import (
+        BatchEvaluationRequest,
+        BatchEvaluationResponse,
+        EvaluationRequest,
+        EvaluationResponse,
+    )
+
+    # A mid-batch cancellation on the per-item path must re-raise CancelledError so
+    # structured concurrency can cancel the task, and must record a block/error metric
+    # so the interruption is observable to ops (matching the assurance doc guarantee).
+    class CancellingBackend:
+        async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
+            raise asyncio.CancelledError()
+
+        async def evaluate_batch(self, request: BatchEvaluationRequest) -> BatchEvaluationResponse:
+            raise asyncio.CancelledError()
+
+        async def aclose(self) -> None:
+            pass
+
+    assert isinstance(CancellingBackend(), DecisionBackend)
+    metrics = InMemoryMetrics()
+    cfg = make_config(max_retries=0)
+    engine = AuthorizationEngine(cfg, client=CancellingBackend(), metrics=metrics)
+    with pytest.raises(asyncio.CancelledError):
+        await engine.evaluate_each(_normalized("read", "write"))
+    block_count = sum(
+        v for (verdict, _status), v in metrics.decisions.items() if verdict == "block"
+    )
+    assert block_count >= 1
