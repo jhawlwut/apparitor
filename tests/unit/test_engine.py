@@ -903,3 +903,211 @@ def test_build_engine_pdp_url_only_builds_config() -> None:
     cfg, engine = build_engine("https://pdp.example.com/access/v1/evaluation", None)
     assert str(cfg.pdp_url) == "https://pdp.example.com/access/v1/evaluation"
     assert isinstance(engine, AuthorizationEngine)
+
+
+# --- generic reason (no exception text to callers) ----------------------------------
+
+
+@pytest.mark.asyncio
+async def test_transport_error_reason_is_generic(
+    make_config, make_openai_call, noop_sleep, respx_mock, caplog
+) -> None:
+    # Requirements §3.10: returned reason must be generic; PDP URL/host stays in operator
+    # logs only. A transport error must not embed the exception text in VerdictResult.reason.
+    import logging
+
+    respx_mock.post(_EVAL_URL).mock(
+        side_effect=httpx.ConnectError("connection refused: pdp.secret.internal")
+    )
+    engine = _engine(make_config(max_retries=0), noop_sleep)
+    with caplog.at_level(logging.WARNING, logger="apparitor"):
+        result = await engine.evaluate_tool_calls([make_openai_call("read")])
+    assert result.verdict is Verdict.BLOCK
+    assert result.status is VerdictStatus.ERROR
+    # The detailed exception message must not appear in the caller-visible reason.
+    assert "pdp.secret.internal" not in result.reason
+    assert "connection refused" not in result.reason
+    # But it MUST appear in the operator log.
+    assert "pdp.secret.internal" in caplog.text or "connection refused" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_malformed_response_reason_is_generic(
+    make_config, make_openai_call, noop_sleep, respx_mock, caplog
+) -> None:
+    # A malformed PDP body must not expose internal detail in the caller-visible reason.
+    import logging
+
+    respx_mock.post(_EVAL_URL).respond(
+        content=b'{"decision": false, "decision": true}',
+        headers={"content-type": "application/json"},
+    )
+    engine = _engine(make_config(max_retries=0), noop_sleep)
+    with caplog.at_level(logging.WARNING, logger="apparitor"):
+        result = await engine.evaluate_tool_calls([make_openai_call("read")])
+    assert result.verdict is Verdict.BLOCK
+    assert result.status is VerdictStatus.ERROR
+    assert "duplicate" not in result.reason
+    assert "decision" not in result.reason.lower().replace("blocked", "")
+
+
+# --- CancelledError must not silently become ALLOW ----------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cancelled_error_propagates_and_records_metric(
+    make_config, make_openai_call, noop_sleep
+) -> None:
+    import asyncio
+
+    from apparitor.backends import DecisionBackend
+    from apparitor.metrics import InMemoryMetrics
+    from apparitor.models import (
+        BatchEvaluationRequest,
+        BatchEvaluationResponse,
+        EvaluationRequest,
+        EvaluationResponse,
+    )
+
+    # Mid-PDP cancellation must re-raise CancelledError (structured concurrency) and
+    # must never silently return an ALLOW (a missing verdict is non-authorized).
+    class CancellingBackend:
+        async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
+            raise asyncio.CancelledError()
+
+        async def evaluate_batch(self, request: BatchEvaluationRequest) -> BatchEvaluationResponse:
+            raise asyncio.CancelledError()
+
+        async def aclose(self) -> None:
+            pass
+
+    assert isinstance(CancellingBackend(), DecisionBackend)
+    metrics = InMemoryMetrics()
+    cfg = make_config(max_retries=0)
+    engine = AuthorizationEngine(cfg, client=CancellingBackend(), metrics=metrics)
+    with pytest.raises(asyncio.CancelledError):
+        await engine.evaluate_tool_calls([make_openai_call("read")])
+    # The block/error counter must have been incremented so ops can observe the interruption.
+    block_count = sum(
+        v for (verdict, _status), v in metrics.decisions.items() if verdict == "block"
+    )
+    assert block_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_cancelled_error_propagates_and_records_metric(
+    make_config, noop_sleep
+) -> None:
+    import asyncio
+
+    from apparitor.backends import DecisionBackend
+    from apparitor.metrics import InMemoryMetrics
+    from apparitor.models import (
+        BatchEvaluationRequest,
+        BatchEvaluationResponse,
+        EvaluationRequest,
+        EvaluationResponse,
+    )
+
+    # A mid-batch cancellation on the per-item path must re-raise CancelledError so
+    # structured concurrency can cancel the task, and must record a block/error metric
+    # so the interruption is observable to ops (matching the assurance doc guarantee).
+    class CancellingBackend:
+        async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
+            raise asyncio.CancelledError()
+
+        async def evaluate_batch(self, request: BatchEvaluationRequest) -> BatchEvaluationResponse:
+            raise asyncio.CancelledError()
+
+        async def aclose(self) -> None:
+            pass
+
+    assert isinstance(CancellingBackend(), DecisionBackend)
+    metrics = InMemoryMetrics()
+    cfg = make_config(max_retries=0)
+    engine = AuthorizationEngine(cfg, client=CancellingBackend(), metrics=metrics)
+    with pytest.raises(asyncio.CancelledError):
+        await engine.evaluate_each(_normalized("read", "write"))
+    block_count = sum(
+        v for (verdict, _status), v in metrics.decisions.items() if verdict == "block"
+    )
+    assert block_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_cancelled_error_propagates_even_when_sink_raises(
+    make_config, make_openai_call, noop_sleep
+) -> None:
+    import asyncio
+
+    from apparitor.backends import DecisionBackend
+    from apparitor.models import (
+        BatchEvaluationRequest,
+        BatchEvaluationResponse,
+        EvaluationRequest,
+        EvaluationResponse,
+    )
+
+    # A raising MetricsSink must not replace the original CancelledError — the
+    # observability-isolation invariant applies even on the cancellation path.
+    class CancellingBackend:
+        async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
+            raise asyncio.CancelledError()
+
+        async def evaluate_batch(self, request: BatchEvaluationRequest) -> BatchEvaluationResponse:
+            raise asyncio.CancelledError()
+
+        async def aclose(self) -> None:
+            pass
+
+    class RaisingSink:
+        def record_decision(self, *, verdict: str, status: str, latency_s: float) -> None:
+            raise RuntimeError("sink boom")
+
+        def record_cache(self, *, hit: bool) -> None:
+            raise RuntimeError("sink boom")
+
+    assert isinstance(CancellingBackend(), DecisionBackend)
+    cfg = make_config(max_retries=0)
+    engine = AuthorizationEngine(cfg, client=CancellingBackend(), metrics=RaisingSink())
+    with pytest.raises(asyncio.CancelledError):
+        await engine.evaluate_tool_calls([make_openai_call("read")])
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_cancelled_error_propagates_even_when_sink_raises(
+    make_config, noop_sleep
+) -> None:
+    import asyncio
+
+    from apparitor.backends import DecisionBackend
+    from apparitor.models import (
+        BatchEvaluationRequest,
+        BatchEvaluationResponse,
+        EvaluationRequest,
+        EvaluationResponse,
+    )
+
+    # Same guarantee on the per-item path: a raising sink must not mask CancelledError.
+    class CancellingBackend:
+        async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
+            raise asyncio.CancelledError()
+
+        async def evaluate_batch(self, request: BatchEvaluationRequest) -> BatchEvaluationResponse:
+            raise asyncio.CancelledError()
+
+        async def aclose(self) -> None:
+            pass
+
+    class RaisingSink:
+        def record_decision(self, *, verdict: str, status: str, latency_s: float) -> None:
+            raise RuntimeError("sink boom")
+
+        def record_cache(self, *, hit: bool) -> None:
+            raise RuntimeError("sink boom")
+
+    assert isinstance(CancellingBackend(), DecisionBackend)
+    cfg = make_config(max_retries=0)
+    engine = AuthorizationEngine(cfg, client=CancellingBackend(), metrics=RaisingSink())
+    with pytest.raises(asyncio.CancelledError):
+        await engine.evaluate_each(_normalized("read", "write"))

@@ -192,6 +192,63 @@ async def test_quote_in_id_fails_closed() -> None:
         await backend.aclose()
 
 
+@pytest.mark.asyncio
+async def test_backslash_in_id_fails_closed() -> None:
+    # A backslash inside a Cedar string literal produces a malformed UID; reject -> deny.
+    backend = CedarBackend(_config())
+    try:
+        with pytest.raises(MalformedPDPResponseError):
+            await backend.evaluate(_request("send\\_email"))
+    finally:
+        await backend.aclose()
+
+
+@pytest.mark.asyncio
+async def test_control_char_in_id_fails_closed() -> None:
+    # A control char (U+0000-U+001F) would embed an invisible byte in the Cedar literal;
+    # reject -> deny rather than pass a malformed UID to the engine.
+    backend = CedarBackend(_config())
+    try:
+        with pytest.raises(MalformedPDPResponseError):
+            await backend.evaluate(_request("send\x01email"))
+        with pytest.raises(MalformedPDPResponseError):
+            await backend.evaluate(_request("send\x1femail"))
+    finally:
+        await backend.aclose()
+
+
+# --- _entity_uid unit tests (no backend construction needed) -----------------------
+
+
+def test_entity_uid_rejects_double_quote() -> None:
+    from apparitor.cedar import _entity_uid
+
+    with pytest.raises(ValueError, match="disallowed"):
+        _entity_uid("tool", 'foo"bar')
+
+
+def test_entity_uid_rejects_backslash() -> None:
+    from apparitor.cedar import _entity_uid
+
+    with pytest.raises(ValueError, match="disallowed"):
+        _entity_uid("tool", "foo\\bar")
+
+
+def test_entity_uid_rejects_control_chars() -> None:
+    from apparitor.cedar import _entity_uid
+
+    for c in ("\x00", "\x1f", "\n", "\r", "\t"):
+        with pytest.raises(ValueError, match="disallowed"):
+            _entity_uid("tool", f"foo{c}bar")
+
+
+def test_entity_uid_accepts_normal_identifier() -> None:
+    from apparitor.cedar import _entity_uid
+
+    uid = _entity_uid("tool", "send_email")
+    assert uid == 'Tool::"send_email"'
+
+
 # --- batch --------------------------------------------------------------------------
 
 
