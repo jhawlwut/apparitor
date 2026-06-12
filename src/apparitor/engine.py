@@ -305,6 +305,15 @@ class AuthorizationEngine:
                     combined = escalate(combined, leg)
                 results[i] = VerdictResult(combined, _reason_for(combined))
             return results
+        except asyncio.CancelledError:
+            # CancelledError is a BaseException; the `except Exception` below does not catch
+            # it — without this clause a mid-batch cancellation would record no metric, making
+            # the interruption invisible to ops.  Record the fault metric (same convention as
+            # _evaluate_guarded), then re-raise: a cancelled scan is non-authorized.
+            self.metrics.record_decision(
+                verdict=Verdict.BLOCK.value, status=VerdictStatus.ERROR.value, latency_s=0.0
+            )
+            raise
         except Exception as exc:
             # Covers the PDP round trip AND per-item mapping (a raising review predicate
             # must fail closed here exactly as it does on the aggregate path).
