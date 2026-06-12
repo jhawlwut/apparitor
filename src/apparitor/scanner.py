@@ -17,8 +17,9 @@ from typing import TYPE_CHECKING, Any
 
 from .config import ScannerConfig
 from .decision import Verdict, VerdictResult, VerdictStatus
-from .engine import ReviewPredicate, build_engine
+from .engine import ReviewPredicate, build_engine, resolve_config
 from .errors import MissingDependencyError
+from .mapping import current_request_context
 
 try:  # pragma: no cover - exercised via import-guard tests
     from llamafirewall import (
@@ -82,9 +83,9 @@ class AuthZENScanner(Scanner):  # type: ignore[misc]  # LlamaFirewall ships no t
         block_threshold: float = 1.0,
     ) -> None:
         super().__init__(scanner_name, block_threshold)
-        self._config, self._engine = build_engine(
-            pdp_url,
-            config,
+        self._config = resolve_config(pdp_url, config)
+        self._engine = build_engine(
+            self._config,
             http_client=http_client,
             mapper=mapper,
             review_predicate=review_predicate,
@@ -98,8 +99,6 @@ class AuthZENScanner(Scanner):  # type: ignore[misc]  # LlamaFirewall ships no t
 
     async def scan(self, message: Message, past_trace: Trace | None = None) -> ScanResult:
         """Authorize the tool call(s) in ``message`` against the PDP."""
-        from .mapping import current_request_context
-
         tool_calls = _tool_calls(message)
         verdict = await self._engine.evaluate_tool_calls(
             tool_calls, request_context=current_request_context.get()

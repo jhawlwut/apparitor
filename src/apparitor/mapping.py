@@ -22,7 +22,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from .decision import DUAL_PRINCIPAL_CACHE_WARNING
+from .decision import DUAL_PRINCIPAL_CACHE_WARNING, WORKLOAD_RESERVED_MSG
 from .errors import AuthZENConfigError
 from .models import Action, EvaluationRequest, Resource, Subject
 
@@ -68,6 +68,22 @@ def request_context_attrs(request_context: Mapping[str, Any]) -> dict[str, Any] 
     # non-JSON leaf values to strings so downstream serialisation (the PDP body and the
     # cache key) doesn't crash on them — the same treatment tool arguments get.
     return _json_safe(ctx)
+
+
+def request_scoped_subject(request_context: Mapping[str, Any]) -> Subject | None:
+    """The request-scoped principal, or ``None`` when no request-scoped value is set.
+
+    One resolution order: an explicitly injected trusted ``request_context["subject"]``
+    outranks the ambient :data:`current_subject`. **Not for adapters that run inside a
+    detached, long-lived task** (the A2A executor): there, contextvars are snapshotted at
+    task creation and go stale across turns, so consulting :data:`current_subject` would
+    be a cross-request identity leak — see :mod:`apparitor.a2a`, which deliberately reads
+    only its per-request ``ServerCallContext.state``.
+    """
+    injected = request_context.get("subject")
+    if isinstance(injected, Subject):
+        return injected
+    return current_subject.get()
 
 
 @contextmanager
@@ -152,10 +168,7 @@ class DefaultToolCallMapper:
         self._config = config
 
     def _resolve_subject(self, request_context: Mapping[str, Any]) -> Subject:
-        injected = request_context.get("subject")
-        if isinstance(injected, Subject):
-            return injected
-        subject = current_subject.get()
+        subject = request_scoped_subject(request_context)
         if subject is not None:
             return subject
         if self._config.agent_id is not None:
@@ -281,18 +294,14 @@ class DualPrincipalMapper(DefaultToolCallMapper):
                 )
             agent_subject = Subject(type=config.subject_type, id=config.agent_id)
         if agent_subject.type == "workload":
-            # Reserved for verified client-credentials tokens (see apparitor.fastmcp);
-            # a static agent principal in that namespace would alias machine policies.
-            raise AuthZENConfigError('subject type "workload" is reserved')
+            # Same reservation the gateway adapters enforce — one canonical message.
+            raise AuthZENConfigError(WORKLOAD_RESERVED_MSG)
         self._agent_subject = agent_subject
         if config.cache_enabled:
             logger.warning(DUAL_PRINCIPAL_CACHE_WARNING)
 
     def _resolve_user(self, request_context: Mapping[str, Any]) -> Subject:
-        injected = request_context.get("subject")
-        if isinstance(injected, Subject):
-            return injected
-        subject = current_subject.get()
+        subject = request_scoped_subject(request_context)
         if subject is not None:
             return subject
         raise AuthZENConfigError(

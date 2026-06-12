@@ -7,7 +7,9 @@ decision/aggregation/error surface is unit-testable without the ML stack; the sc
 
 Also hosts the shared adapter helpers that all four adapters import:
 :func:`is_allowed_inline` / :func:`is_allowed_gateway` (SKIP semantics differ between
-in-runtime firewall and gateway adapters), :func:`record_pre_engine_refusal`, and
+in-runtime firewall and gateway adapters), :func:`refusal_message`,
+:func:`record_pre_engine_refusal`, :func:`validate_gateway_subject_config`,
+:data:`WORKLOAD_RESERVED_MSG`, and
 :data:`DUAL_PRINCIPAL_CACHE_WARNING`. They live here — rather than in ``engine`` — because
 this is the lowest-common import that is both engine-free and host-SDK-free; placing them
 higher would create circular imports between the adapter modules and the engine.
@@ -21,9 +23,12 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from .config import OnError
+from .errors import AuthZENConfigError
 
 if TYPE_CHECKING:
+    from .config import ScannerConfig
     from .metrics import MetricsSink
+    from .models import Subject
 
 _log = logging.getLogger("apparitor")
 
@@ -136,13 +141,56 @@ def is_allowed_gateway(verdict: VerdictResult) -> bool:
     return verdict.status is not VerdictStatus.ERROR and verdict.verdict is Verdict.ALLOW
 
 
+def refusal_message(noun: str, verdict: VerdictResult | None) -> str:
+    """Generic, per-surface refusal text for the network-boundary adapters.
+
+    This text crosses the trust boundary to the client/calling agent verbatim, so it is
+    fixed and generic — never the engine's reason, which may embed PDP/config detail
+    (requirements §3.10). HUMAN_REVIEW stays distinguishable so a host can escalate.
+    """
+    if verdict is not None and verdict.verdict is Verdict.HUMAN_REVIEW:
+        return f"{noun} requires human approval; do not retry"
+    return f"{noun} not authorized"
+
+
 #: Warning emitted once at construction when dual-principal evaluation is combined with the
-#: ALLOW cache; imported by all three sites (fastmcp, a2a, mapping) so the text is pinned
-#: in one place and the test-suite can assert the exact string.
+#: ALLOW cache; shared by both emission sites (:func:`validate_gateway_subject_config`
+#: below, for the gateway adapters' ``boundary_subject``, and ``mapping``'s
+#: ``DualPrincipalMapper``) so the text is pinned in one place and the test-suite can
+#: assert the exact string.
 DUAL_PRINCIPAL_CACHE_WARNING = (
     "apparitor: dual-principal evaluation always batches, so the ALLOW cache"
     " (cache_enabled=True) will never be consulted"
 )
+
+#: Error message for the workload namespace guard (shared by the gateway adapters and
+#: ``DualPrincipalMapper``). The "workload" type is reserved for verified
+#: client-credentials tokens (FastMCP) — minting claim-derived, static, or boundary
+#: principals in that namespace would alias machine policies on a shared PDP.
+WORKLOAD_RESERVED_MSG = 'subject type "workload" is reserved for verified client-credentials tokens'
+
+
+def validate_gateway_subject_config(
+    config: ScannerConfig,
+    *,
+    subject_type: str,
+    allow_static_subject: bool,
+    boundary_subject: Subject | None,
+) -> None:
+    """Shared constructor guards for the network-boundary adapters (FastMCP, A2A).
+
+    Enforces the ``workload`` namespace reservation (see :data:`WORKLOAD_RESERVED_MSG`)
+    across the claim-derived, static-fallback, and boundary principals, and warns once
+    when a boundary subject is combined with the ALLOW cache (boundary evaluation always
+    batches, so the cache is never consulted).
+    """
+    if subject_type == "workload" or (allow_static_subject and config.subject_type == "workload"):
+        raise AuthZENConfigError(WORKLOAD_RESERVED_MSG)
+    if boundary_subject is not None:
+        if boundary_subject.type == "workload":
+            raise AuthZENConfigError(WORKLOAD_RESERVED_MSG)
+        if config.cache_enabled:
+            _log.warning(DUAL_PRINCIPAL_CACHE_WARNING)
 
 
 def record_pre_engine_refusal(metrics: MetricsSink) -> None:

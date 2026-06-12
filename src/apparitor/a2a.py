@@ -84,17 +84,16 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from .config import ScannerConfig
 from .decision import (
-    DUAL_PRINCIPAL_CACHE_WARNING,
-    Verdict,
     VerdictResult,
     is_allowed_gateway,
     record_pre_engine_refusal,
+    refusal_message,
+    validate_gateway_subject_config,
 )
-from .engine import WORKLOAD_RESERVED_MSG, ReviewPredicate, build_engine
+from .engine import ReviewPredicate, build_engine, resolve_config
 from .errors import AuthZENConfigError, MissingDependencyError
-from .mapping import build_boundary_leg, request_context_attrs
+from .mapping import request_context_attrs
 from .models import Action, EvaluationRequest, Resource, Subject
 
 try:  # pragma: no cover - exercised via import-guard tests
@@ -111,20 +110,10 @@ if TYPE_CHECKING:
     import httpx
     from a2a.server.events import EventQueue
 
+    from .config import ScannerConfig
     from .metrics import MetricsSink
 
 logger = logging.getLogger("apparitor")
-
-
-def _refusal(verdict: VerdictResult | None) -> str:
-    """Generic refusal text; HUMAN_REVIEW stays distinguishable for calling agents.
-
-    This text crosses the trust boundary to the calling agent verbatim, so it is fixed
-    and generic — never the engine's reason, which may embed PDP/config detail.
-    """
-    if verdict is not None and verdict.verdict is Verdict.HUMAN_REVIEW:
-        return "agent invocation requires human approval; do not retry"
-    return "agent invocation not authorized"
 
 
 class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk may be absent in the lint env (base is Any)
@@ -159,21 +148,14 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
         review_predicate: ReviewPredicate | None = None,
         metrics: MetricsSink | None = None,
     ) -> None:
-        # Resolve config first so workload guards can check config.subject_type.
-        if pdp_url is not None and config is not None:
-            raise AuthZENConfigError("provide pdp_url or config, not both")
-        if config is None:
-            if pdp_url is None:
-                raise AuthZENConfigError("provide either pdp_url or config")
-            config = ScannerConfig(pdp_url=pdp_url)
-        # Reserved for verified client-credentials tokens (see apparitor.fastmcp);
-        # minting principals in that namespace would alias machine policies on a shared PDP.
-        if subject_type == "workload" or (
-            allow_static_subject and config.subject_type == "workload"
-        ):
-            raise AuthZENConfigError(WORKLOAD_RESERVED_MSG)
-        if boundary_subject is not None and boundary_subject.type == "workload":
-            raise AuthZENConfigError(WORKLOAD_RESERVED_MSG)
+        # Resolve config first so the workload guards can check config.subject_type.
+        config = resolve_config(pdp_url, config)
+        validate_gateway_subject_config(
+            config,
+            subject_type=subject_type,
+            allow_static_subject=allow_static_subject,
+            boundary_subject=boundary_subject,
+        )
         label = agent_label.strip()
         if not label or "/" in label:
             raise AuthZENConfigError("agent_label must be non-empty and contain no '/'")
@@ -184,15 +166,12 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
         self._subject_type = subject_type
         self._allow_static_subject = allow_static_subject
         self._boundary_subject = boundary_subject
-        _, self._engine = build_engine(
-            None,  # config already resolved above
+        self._engine = build_engine(
             config,
             http_client=http_client,
             review_predicate=review_predicate,
             metrics=metrics,
         )
-        if boundary_subject is not None and config.cache_enabled:
-            logger.warning(DUAL_PRINCIPAL_CACHE_WARNING)
         logger.info(
             "apparitor: A2A executor gating agent.invoke for %r%s",
             label,
@@ -215,7 +194,7 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
             # generic message is deliberate — exception text reaches the calling agent.
             logger.exception("apparitor: A2A authorization executor error (refusing)")
             record_pre_engine_refusal(self._engine.metrics)
-            raise InvalidRequestError(message=_refusal(None)) from None
+            raise InvalidRequestError(message=refusal_message("agent invocation", None)) from None
         if verdict is not None and is_allowed_gateway(verdict):
             await self._delegate.execute(context, event_queue)
             return
@@ -223,7 +202,7 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
             # No resolvable subject: the engine never ran; count the refusal so an
             # all-misconfigured fleet doesn't show zero decisions.
             record_pre_engine_refusal(self._engine.metrics)
-        raise InvalidRequestError(message=_refusal(verdict))
+        raise InvalidRequestError(message=refusal_message("agent invocation", verdict))
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Pass task cancellation through ungated (v1 — see module docstring)."""
@@ -249,16 +228,7 @@ class A2AAuthorizationExecutor(AgentExecutor):  # type: ignore[misc]  # a2a-sdk 
             resource=resource,
             context=self._context_attrs(context, state),
         )
-        if self._boundary_subject is not None:
-            try:
-                boundary_leg = build_boundary_leg(
-                    request, self._boundary_subject, caller_subject=subject
-                )
-            except AuthZENConfigError as exc:
-                logger.warning("apparitor: boundary collapse guard refused: %s", exc)
-                return None
-            return await self._engine.evaluate_requests([request, boundary_leg])
-        return await self._engine.evaluate_requests([request])
+        return await self._engine.evaluate_with_boundary(request, self._boundary_subject)
 
     def _resolve_subject(self, context: RequestContext, state: dict[str, Any]) -> Subject | None:
         user = context.call_context.user if context.call_context else None
