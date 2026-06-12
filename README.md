@@ -21,7 +21,7 @@ that action — is the prompt a jailbreak, is the generated code malicious — a
 them asks the question your security model actually depends on: is this agent
 **allowed** to do this, for this user, right now?
 
-```
+```text
 Agent: "Delete the production database"
          │
          ▼
@@ -39,7 +39,7 @@ auditable engines. apparitor routes each agent action to a policy decision point
 and maps the verdict back onto the enforcement point's `ALLOW` / `BLOCK` /
 `HUMAN_IN_THE_LOOP` model:
 
-```
+```text
 Agent: "Delete the production database"
          │
          ▼
