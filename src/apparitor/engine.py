@@ -200,6 +200,19 @@ class AuthorizationEngine:
         except Exception:
             logger.exception("apparitor: cache metric emission failed (verdict unaffected)")
 
+    def _record_cancelled(self) -> None:
+        """Record the block/error metric for a mid-evaluation cancellation, isolated.
+
+        Must not raise — a faulty sink must never replace the original CancelledError with a
+        metrics exception, which would violate the observability-isolation invariant.
+        """
+        try:
+            self.metrics.record_decision(
+                verdict=Verdict.BLOCK.value, status=VerdictStatus.ERROR.value, latency_s=0.0
+            )
+        except Exception:
+            logger.exception("apparitor: cancellation metric emission failed")
+
     async def _decide(
         self, tool_calls: list[NormalizedToolCall], ctx: Mapping[str, Any]
     ) -> tuple[VerdictResult, list[EvaluationRequest]]:
@@ -230,9 +243,7 @@ class AuthorizationEngine:
             # indistinguishable from ALLOW at the caller.  Record the fault metric so ops
             # can observe the interruption, then re-raise: structured concurrency requires
             # CancelledError to propagate (callers must treat an unfinished scan as denied).
-            self.metrics.record_decision(
-                verdict=Verdict.BLOCK.value, status=VerdictStatus.ERROR.value, latency_s=0.0
-            )
+            self._record_cancelled()
             raise
         except Exception as exc:
             return self._fault_verdict(exc)
@@ -310,9 +321,7 @@ class AuthorizationEngine:
             # it — without this clause a mid-batch cancellation would record no metric, making
             # the interruption invisible to ops.  Record the fault metric (same convention as
             # _evaluate_guarded), then re-raise: a cancelled scan is non-authorized.
-            self.metrics.record_decision(
-                verdict=Verdict.BLOCK.value, status=VerdictStatus.ERROR.value, latency_s=0.0
-            )
+            self._record_cancelled()
             raise
         except Exception as exc:
             # Covers the PDP round trip AND per-item mapping (a raising review predicate
