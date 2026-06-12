@@ -13,40 +13,33 @@ All notable changes to this project are documented here. The format follows
   leak a prior request's injected context into a later request on a reused task/loop. This
   is now the preferred pattern over calling `.set()/.reset()` directly (documented in
   `docs/setup.md`).
-- **Internal adversarial security review** (`docs/security-review.md`): scope, methodology,
-  findings table, verified-sound properties, known limitations, and re-review triggers.
+- **Security posture & assurance document** (`docs/security-review.md`): standing
+  invariants, threat-model coverage, test citations, known limitations, and re-review
+  triggers — continuously scannable baseline.
 
 ### Security
-- **Duplicate JSON key in PDP response now fails closed (§3.6).** `json.loads` collapses
-  duplicate keys with last-wins semantics, so a body like `{"decision": false, "decision":
-  true}` reached pydantic's `StrictBool` as `{"decision": true}` — coercing a
-  contradictory/malformed response into an ALLOW before validation ran. A
-  `object_pairs_hook` in the new `_strict_json` helper now raises
-  `MalformedPDPResponseError` on any duplicate key within a JSON object. The fix applies to
-  both the AuthZEN transport and the OPA backend (both parse PDP responses through the
-  shared `_handle_status` path). Sibling objects in a batch response (multiple `"decision"`
-  fields in distinct array entries) are correctly NOT flagged — the check is per-object.
-- **`VerdictResult.reason` is now always a generic string on error paths (§3.10).** Previously
-  `_fault_verdict` embedded `str(exc)` and `f"PDP unavailable: {exc}"` in the caller-visible
-  reason, which could expose the PDP host/URL on transport errors and internal detail on
-  unexpected exceptions. All error-path `VerdictResult.reason` values now use the fixed
-  `_DENY_REASON` constant. Exception detail continues to appear in `logger.warning` /
-  `logger.exception` calls for operator diagnostics — unchanged — and is now also emitted
-  before the early-return paths that previously had no log line (unparseable tool call,
-  4xx client error).
-- **`asyncio.CancelledError` is now recorded in metrics before re-propagating.** `CancelledError`
-  is a `BaseException` and was invisible to the `except Exception` guard in
-  `_evaluate_guarded` — a task cancelled mid-PDP-call produced no metric and no verdict,
-  which is indistinguishable from ALLOW at the caller. A dedicated `except
-  asyncio.CancelledError` clause now records a `block/error` decision metric (observable in
-  ops) and immediately re-raises, preserving structured-concurrency invariants. The public
-  `evaluate_normalized` and `evaluate_requests` docstrings now note that `CancelledError`
-  propagates and callers must treat an unfinished scan as non-authorized.
-- **Cedar `_entity_uid` hardened to reject backslash and control characters.** Previously
-  only double-quotes were explicitly rejected; a backslash or control character in an
-  identifier also breaks the Cedar string literal (`Agent::"foo\nbar"`). The engine already
-  failed closed on a Cedar parse error (NoDecision → BLOCK), but the rejection is now
-  explicit and reported at the validation seam.
+- **PDP response parsing now rejects duplicate JSON keys (§3.6), failing closed with
+  `MalformedPDPResponseError`.** An `object_pairs_hook` in the new `_strict_json` helper
+  raises `MalformedPDPResponseError` on any duplicate key within a JSON object, closing a
+  response-validation gap at the PDP trust boundary. The fix applies to both the AuthZEN
+  transport and the OPA backend. Sibling objects in a batch response (multiple `"decision"`
+  fields in distinct array entries) are correctly not flagged — the check is per-object.
+- **Error-path `VerdictResult.reason` is now always a generic string (§3.10).** All
+  error-path verdicts use the fixed `_DENY_REASON` constant, ensuring internal detail
+  (exception text, transport state) is never exposed to callers. Exception detail continues
+  to appear in operator logs for diagnostics. The fix also adds log lines on early-return
+  paths that previously had none (unparseable tool call, 4xx client error).
+- **`asyncio.CancelledError` is now recorded in metrics before re-propagating.** A
+  dedicated `except asyncio.CancelledError` clause in `_evaluate_guarded` records a
+  `block/error` decision metric and immediately re-raises, preserving
+  structured-concurrency invariants. The public `evaluate_normalized` and
+  `evaluate_requests` docstrings note that `CancelledError` propagates and callers must
+  treat an unfinished scan as non-authorized.
+- **Cedar `_entity_uid` hardened to reject backslash and control characters.** The
+  rejection is now explicit at the validation seam (covering double-quote, backslash, and
+  control characters), so invalid identifiers are caught before Cedar processes them. The
+  engine already failed closed on a Cedar parse error (NoDecision → BLOCK); this makes
+  the boundary explicit.
 - **`.env` added to `.gitignore`; `llamafirewall` extra capped at `<1`.** Prevents
   accidental credential commits and pins the audited major version of the ML stack.
 
