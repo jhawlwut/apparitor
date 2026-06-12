@@ -1032,3 +1032,82 @@ async def test_evaluate_each_cancelled_error_propagates_and_records_metric(
         v for (verdict, _status), v in metrics.decisions.items() if verdict == "block"
     )
     assert block_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_cancelled_error_propagates_even_when_sink_raises(
+    make_config, make_openai_call, noop_sleep
+) -> None:
+    import asyncio
+
+    from apparitor.backends import DecisionBackend
+    from apparitor.models import (
+        BatchEvaluationRequest,
+        BatchEvaluationResponse,
+        EvaluationRequest,
+        EvaluationResponse,
+    )
+
+    # A raising MetricsSink must not replace the original CancelledError — the
+    # observability-isolation invariant applies even on the cancellation path.
+    class CancellingBackend:
+        async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
+            raise asyncio.CancelledError()
+
+        async def evaluate_batch(self, request: BatchEvaluationRequest) -> BatchEvaluationResponse:
+            raise asyncio.CancelledError()
+
+        async def aclose(self) -> None:
+            pass
+
+    class RaisingSink:
+        def record_decision(self, *, verdict: str, status: str, latency_s: float) -> None:
+            raise RuntimeError("sink boom")
+
+        def record_cache(self, *, hit: bool) -> None:
+            raise RuntimeError("sink boom")
+
+    assert isinstance(CancellingBackend(), DecisionBackend)
+    cfg = make_config(max_retries=0)
+    engine = AuthorizationEngine(cfg, client=CancellingBackend(), metrics=RaisingSink())
+    with pytest.raises(asyncio.CancelledError):
+        await engine.evaluate_tool_calls([make_openai_call("read")])
+
+
+@pytest.mark.asyncio
+async def test_evaluate_each_cancelled_error_propagates_even_when_sink_raises(
+    make_config, noop_sleep
+) -> None:
+    import asyncio
+
+    from apparitor.backends import DecisionBackend
+    from apparitor.models import (
+        BatchEvaluationRequest,
+        BatchEvaluationResponse,
+        EvaluationRequest,
+        EvaluationResponse,
+    )
+
+    # Same guarantee on the per-item path: a raising sink must not mask CancelledError.
+    class CancellingBackend:
+        async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
+            raise asyncio.CancelledError()
+
+        async def evaluate_batch(self, request: BatchEvaluationRequest) -> BatchEvaluationResponse:
+            raise asyncio.CancelledError()
+
+        async def aclose(self) -> None:
+            pass
+
+    class RaisingSink:
+        def record_decision(self, *, verdict: str, status: str, latency_s: float) -> None:
+            raise RuntimeError("sink boom")
+
+        def record_cache(self, *, hit: bool) -> None:
+            raise RuntimeError("sink boom")
+
+    assert isinstance(CancellingBackend(), DecisionBackend)
+    cfg = make_config(max_retries=0)
+    engine = AuthorizationEngine(cfg, client=CancellingBackend(), metrics=RaisingSink())
+    with pytest.raises(asyncio.CancelledError):
+        await engine.evaluate_each(_normalized("read", "write"))

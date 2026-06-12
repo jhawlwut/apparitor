@@ -153,10 +153,15 @@ The system guarantees that metrics and log-sink failures cannot affect verdict d
 
 - Sink failures are caught and logged at `ERROR` but do not alter or delay the verdict.
 - The decision is returned before the sink call where possible.
+- A raising sink on the `asyncio.CancelledError` path cannot replace `CancelledError` with
+  a metrics exception — `_record_cancelled` isolates the write so structured concurrency
+  propagation is never masked.
 
 Enforcing tests:
 `tests/unit/test_metrics.py::test_faulty_sink_never_breaks_or_alters_the_decision`,
-`tests/unit/test_metrics.py::test_faulty_cache_metric_sink_does_not_flip_the_verdict`.
+`tests/unit/test_metrics.py::test_faulty_cache_metric_sink_does_not_flip_the_verdict`,
+`tests/unit/test_engine.py::test_cancelled_error_propagates_even_when_sink_raises`,
+`tests/unit/test_engine.py::test_evaluate_each_cancelled_error_propagates_even_when_sink_raises`.
 
 ### Dual-principal AND semantics
 
