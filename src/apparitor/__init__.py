@@ -151,30 +151,22 @@ __all__ = [  # noqa: RUF022 - grouped by concern, not alphabetised, for readabil
 ]
 
 
+#: Lazy exports (PEP 562): each module pulls an optional host/engine SDK, so importing
+#: them on first attribute access keeps a plain ``import apparitor`` working without any
+#: extras installed.
+_LAZY_EXPORTS = {
+    "AuthZENScanner": "scanner",
+    "CedarBackend": "cedar",
+    "NeMoAuthorizationRails": "nemo",
+    "FastMCPAuthorizationMiddleware": "fastmcp",
+    "A2AAuthorizationExecutor": "a2a",
+}
+
+
 def __getattr__(name: str) -> object:
-    """Lazily expose the optional-dependency exports (PEP 562).
+    module = _LAZY_EXPORTS.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from importlib import import_module
 
-    Each branch below pulls an optional host/engine SDK; importing them lazily keeps a
-    plain ``import apparitor`` working without any extras installed.
-    """
-    if name == "AuthZENScanner":
-        from .scanner import AuthZENScanner
-
-        return AuthZENScanner
-    if name == "CedarBackend":
-        from .cedar import CedarBackend
-
-        return CedarBackend
-    if name == "NeMoAuthorizationRails":
-        from .nemo import NeMoAuthorizationRails
-
-        return NeMoAuthorizationRails
-    if name == "FastMCPAuthorizationMiddleware":
-        from .fastmcp import FastMCPAuthorizationMiddleware
-
-        return FastMCPAuthorizationMiddleware
-    if name == "A2AAuthorizationExecutor":
-        from .a2a import A2AAuthorizationExecutor
-
-        return A2AAuthorizationExecutor
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(import_module(f".{module}", __name__), name)
