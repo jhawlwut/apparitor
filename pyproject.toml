@@ -53,7 +53,7 @@ dependencies = [
 # this installed raises a clear MissingDependencyError.
 # Upper bound matches the other pre-1.0 extras: bump deliberately when a breaking
 # minor ships (LlamaFirewall is pre-1.0 and its API can change across minor versions).
-llamafirewall = ["llamafirewall>=0.0.1,<1"]
+llamafirewall = ["llamafirewall>=0.0.1,<2"]
 # Native in-process Cedar backend (ScannerConfig(backend="cedar")). cedarpy wraps the
 # Apache-2.0 Cedar engine (Rust); its version tracks the Cedar major.minor it embeds. Optional
 # so the core stays standalone — importing `apparitor.cedar` without it raises
