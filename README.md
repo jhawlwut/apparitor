@@ -9,38 +9,23 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
-**A vendor-neutral authorization layer for AI agents.** apparitor connects the agentic
-firewalls teams already run to the authorization policy engines they already trust, so
-every agent action is checked against policy before it executes.
-
-Agentic firewalls — [Meta's LlamaFirewall](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall),
-[NVIDIA's NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) — ask *"is this input
-or output safe?"* They do **not** ask *"is this agent **allowed** to do this?"* apparitor
-adds that missing axis. It routes each agent tool call to a policy decision point and maps
-the verdict back onto the firewall's `ALLOW` / `BLOCK` / `HUMAN_IN_THE_LOOP` model.
-
-One integration, many policy engines: apparitor speaks the
-[AuthZEN 1.0](https://openid.net/specs/authorization-interop-spec-1_0.html) interop
-standard, so the same wiring reaches the engines you already author policy in —
-**OpenFGA** (Zanzibar / ReBAC), **Cedar** (policy-as-code), and **OPA / Rego** — with no
-policy rewrite. Apache-2.0, built entirely on public standards.
-
-> **Status: `0.1.0` — beta.** **Shipping today:** four enforcement points — the
-> LlamaFirewall scanner, the NeMo Guardrails rail, the FastMCP server middleware, and the
-> A2A executor — and the AuthZEN evaluation pipeline, working end-to-end against any
-> AuthZEN 1.0 PDP (OpenFGA, Cedar, OPA, Cerbos, Topaz) plus native OPA and in-process
-> Cedar backends, with ≥90% test coverage (CI-enforced) on the adapter-free core (see
-> [`CHANGELOG`](CHANGELOG.md)). **On the roadmap:** a native OpenFGA backend and the
-> code-exec enforcement point. APIs may change — see
-> [`docs/requirements.md`](docs/requirements.md) for the design and [`ROADMAP`](ROADMAP.md).
+**An authorization layer for AI agents.** apparitor checks every agent action — a tool
+call, an MCP request, an agent-to-agent invocation — against the authorization policy
+engine you already trust, *before* it executes. Vendor-neutral, Apache-2.0, built
+entirely on public standards.
 
 ## The gap
 
-```
+Your agent decides to act. Every safety layer in the stack inspects the *content* of
+that action — is the prompt a jailbreak, is the generated code malicious — and none of
+them asks the question your security model actually depends on: is this agent
+**allowed** to do this, for this user, right now?
+
+```text
 Agent: "Delete the production database"
          │
          ▼
-   Agentic firewall   → "Is this prompt malicious?"            → PASS (it's not a jailbreak)
+   Safety scanning    → "Is this prompt malicious?"            → PASS (it's not a jailbreak)
          │
          ▼
    ??? nothing ???    → "Is this agent authorized to do this?" → NO CHECK
@@ -49,13 +34,16 @@ Agent: "Delete the production database"
    Tool executes.  Production database deleted.
 ```
 
-With apparitor in the loop:
+That missing hop is an authorization decision, and authorization already has mature,
+auditable engines. apparitor routes each agent action to a policy decision point (PDP)
+and maps the verdict back onto the enforcement point's `ALLOW` / `BLOCK` /
+`HUMAN_IN_THE_LOOP` model:
 
-```
+```text
 Agent: "Delete the production database"
          │
          ▼
-   Firewall safety scanners (PromptGuard, AlignmentCheck, CodeShield, …)   → PASS
+   Safety scanning (PromptGuard, AlignmentCheck, CodeShield, …)            → PASS
          │
          ▼
    apparitor ──────────POST /access/v1/evaluation──────▶  Policy engine (OpenFGA / Cedar / OPA / …)
@@ -64,6 +52,27 @@ Agent: "Delete the production database"
          ▼
    BLOCK — "agent travel-bot-123 is not authorized for tool_call.execute on database.delete_table"
 ```
+
+**Four enforcement points, one engine.** The check runs wherever your stack lets you
+intercept the action: inside an agentic firewall — as a
+[LlamaFirewall](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall)
+scanner or a [NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) rail — at the
+MCP boundary as FastMCP server middleware, or at the agent-to-agent boundary as an A2A
+executor. Same engine, same fail-closed semantics everywhere; only the boundary differs.
+
+**One integration, many policy engines.** apparitor speaks the
+[AuthZEN 1.0](https://openid.net/specs/authorization-interop-spec-1_0.html) interop
+standard, so the same wiring reaches the engines you already author policy in —
+**OpenFGA** (Zanzibar / ReBAC), **Cedar** (policy-as-code), and **OPA / Rego** — with no
+policy rewrite. OPA and Cedar also have native backends that skip the AuthZEN hop.
+
+> **Status: `0.1.0` — beta.** **Shipping today:** all four enforcement points above and
+> the AuthZEN evaluation pipeline, working end-to-end against any
+> AuthZEN 1.0 PDP (OpenFGA, Cedar, OPA, Cerbos, Topaz) plus native OPA and in-process
+> Cedar backends, with ≥90% test coverage (CI-enforced) on the adapter-free core (see
+> [`CHANGELOG`](CHANGELOG.md)). **On the roadmap:** a native OpenFGA backend and the
+> code-exec enforcement point. APIs may change — see
+> [`docs/requirements.md`](docs/requirements.md) for the design and [`ROADMAP`](ROADMAP.md).
 
 ## Installation
 
@@ -81,9 +90,12 @@ pip install "apparitor[cedar]"             # in-process Cedar backend (cedarpy, 
 
 ## Quickstart
 
-apparitor ships today as a LlamaFirewall scanner and a NeMo Guardrails rail
-(`NeMoAuthorizationRails`). The LlamaFirewall path: point the scanner at any
-AuthZEN-compliant policy decision point (PDP) and bind it to the assistant role:
+Pick the enforcement point your stack already has; the engine behind each is the same.
+
+**Inside LlamaFirewall** — point the scanner at any AuthZEN-compliant policy decision
+point (PDP) and bind it to the assistant role, so it gates tool calls before they are
+dispatched. Tool calls in OpenAI, Anthropic, and LangChain shapes are detected and
+normalised automatically; an unrecognised shape blocks (fail closed):
 
 ```python
 from llamafirewall import LlamaFirewall, Role
@@ -99,6 +111,21 @@ result = await firewall.scan_async(assistant_message)   # ALLOW / BLOCK / HUMAN_
 
 Per request, supply the real end user the agent acts for (recommended over a static
 `agent_id`) — see [Identity: who the agent acts for](#identity-who-the-agent-acts-for).
+
+**As a NeMo Guardrails rail** the identical check registers as a custom action
+(`pip install "apparitor[nemo]"`). The host passes the agent's proposed tool calls into
+the flow as `$tool_calls`; the action returns an `allowed` boolean that fails closed
+under NeMo's mapping, and the rail refuses denied calls (the full verdict is surfaced in
+the rails context for host-built escalation — see the `apparitor.nemo` module docs for
+the flow wiring):
+
+```python
+from nemoguardrails import LLMRails, RailsConfig
+from apparitor.nemo import NeMoAuthorizationRails
+
+rails = LLMRails(RailsConfig.from_path("config"))
+NeMoAuthorizationRails(pdp_url="https://pdp.internal").register(rails)
+```
 
 At the **MCP boundary** the same engine runs server-side, before any tool executes —
 and the subject is the *validated* OAuth identity of the caller (the token's `sub`),
@@ -210,6 +237,25 @@ and a request-context example.
 > it outranks any host-asserted subject. A token is never silently downgraded — a token
 > without a usable claim refuses the call, and the static `agent_id` fallback requires an
 > explicit `allow_static_subject=True` opt-in (local/stdio only).
+
+## Fail-closed by default
+
+Every path that cannot produce a clean ALLOW refuses: an unreachable or timed-out PDP,
+a malformed response (strict validation — a missing or non-boolean `decision` is an
+error, never a coerced allow), a missing subject, an unparseable tool call. There is no
+fail-open option: a PDP failure resolves per `on_error` to `deny` (the default) or
+`human_review`. PDP URLs must be HTTPS and pass an SSRF guard, with TLS verified and
+redirects never followed — the only opt-out is the explicit `allow_insecure_pdp` flag,
+intended for local development; retries are bounded within a per-request wall-clock
+budget. A
+`review_predicate` over the PDP's response context can escalate a decision to
+`HUMAN_IN_THE_LOOP`, never downgrade one (advisory response context exists only on the
+AuthZEN backend — the native OPA and Cedar backends return plain booleans).
+
+Decision caching is **off by default**. When enabled it caches ALLOW decisions only,
+keyed by a digest of the full request tuple (arguments included), with a short TTL that
+is clamped, never extended. See [docs/requirements.md](docs/requirements.md) for the
+full failure-handling and caching design.
 
 ## Observability
 
