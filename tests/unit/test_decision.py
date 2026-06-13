@@ -14,8 +14,12 @@ from apparitor.decision import (
     is_allowed_gateway,
     is_allowed_inline,
     map_single,
+    refusal_message,
     resolve_error,
+    validate_gateway_subject_config,
 )
+from apparitor.errors import AuthZENConfigError
+from apparitor.models import Subject
 
 pytestmark = pytest.mark.unit
 
@@ -135,3 +139,71 @@ def test_inline_and_gateway_diverge_only_on_skip() -> None:
     )
     assert is_allowed_inline(skip_result) is True  # pass-through: nothing to gate
     assert is_allowed_gateway(skip_result) is False  # refuse: mapper abstained on submitted call
+
+
+# --- refusal_message (text that crosses the trust boundary to the client) ------------
+
+
+@pytest.mark.parametrize(
+    ("verdict", "expected"),
+    [
+        # Generic and fixed: never the engine's reason (it may embed PDP/config detail).
+        (None, "tool call not authorized"),
+        (VerdictResult(Verdict.BLOCK, "internal detail"), "tool call not authorized"),
+        (VerdictResult(Verdict.BLOCK, "x", VerdictStatus.ERROR), "tool call not authorized"),
+        # HUMAN_REVIEW stays distinguishable so a host can escalate instead of retrying.
+        (
+            VerdictResult(Verdict.HUMAN_REVIEW, "x"),
+            "tool call requires human approval; do not retry",
+        ),
+    ],
+)
+def test_refusal_message(verdict: VerdictResult | None, expected: str) -> None:
+    assert refusal_message("tool call", verdict) == expected
+
+
+# --- validate_gateway_subject_config (gateway-adapter constructor guards) ------------
+
+
+def test_workload_subject_type_is_reserved(make_config) -> None:
+    with pytest.raises(AuthZENConfigError, match="reserved"):
+        validate_gateway_subject_config(
+            make_config(),
+            subject_type="workload",
+            allow_static_subject=False,
+            boundary_subject=None,
+        )
+
+
+def test_workload_reservation_covers_static_fallback(make_config) -> None:
+    with pytest.raises(AuthZENConfigError, match="reserved"):
+        validate_gateway_subject_config(
+            make_config(subject_type="workload"),
+            subject_type="user",
+            allow_static_subject=True,
+            boundary_subject=None,
+        )
+
+
+def test_workload_boundary_subject_is_reserved(make_config) -> None:
+    with pytest.raises(AuthZENConfigError, match="reserved"):
+        validate_gateway_subject_config(
+            make_config(),
+            subject_type="user",
+            allow_static_subject=False,
+            boundary_subject=Subject(type="workload", id="svc-1"),
+        )
+
+
+def test_boundary_with_cache_enabled_warns(make_config, caplog) -> None:
+    # Boundary evaluation always batches, so the ALLOW cache is dead weight — warn once.
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="apparitor"):
+        validate_gateway_subject_config(
+            make_config(cache_enabled=True),
+            subject_type="user",
+            allow_static_subject=False,
+            boundary_subject=Subject(type="agent", id="svc-1"),
+        )
+    assert "never be consulted" in caplog.text

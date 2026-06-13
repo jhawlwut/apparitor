@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from .adapters import NormalizedToolCall, detect_adapter
 from .backends import build_backend
 from .cache import DecisionCache, decision_cache_key
+from .config import ScannerConfig
 from .decision import (
     Verdict,
     VerdictResult,
@@ -28,13 +29,14 @@ from .decision import (
     resolve_error,
 )
 from .errors import AuthZENClientError, AuthZENConfigError, AuthZENServiceError
-from .mapping import DefaultToolCallMapper
+from .mapping import DefaultToolCallMapper, build_boundary_leg
 from .metrics import InMemoryMetrics, MetricsSink
 from .models import (
     BatchEvaluationRequest,
     EvaluationItem,
     EvaluationRequest,
     EvaluationsOptions,
+    Subject,
 )
 
 if TYPE_CHECKING:
@@ -43,9 +45,7 @@ if TYPE_CHECKING:
     import httpx
 
     from .backends import DecisionBackend
-    from .config import ScannerConfig
     from .mapping import ToolCallMapper
-    from .metrics import MetricsSink
 
 #: Predicate over a PDP response ``context`` that may escalate (never downgrade) a verdict.
 ReviewPredicate = Callable[[dict[str, Any]], bool]
@@ -145,6 +145,34 @@ class AuthorizationEngine:
         latency_s = time.perf_counter() - started
         self._emit(result, requests, latency_s)
         return result
+
+    async def evaluate_with_boundary(
+        self, request: EvaluationRequest, boundary_subject: Subject | None
+    ) -> VerdictResult | None:
+        """Evaluate an adapter-shaped request, AND-ed with the boundary leg when one is set.
+
+        The seam for the adapter-shaped dual-principal paths (A2A invoke, FastMCP
+        resource/prompt gating) that cannot go through the mapper seam. With a boundary
+        subject the caller leg and boundary leg are sent as one batch under the same
+        all-allow-or-block semantics as :class:`~apparitor.mapping.DualPrincipalMapper`.
+
+        **Gateway adapters only.** ``None`` means the collapse guard refused (caller
+        equals boundary); the caller MUST refuse and count the refusal via
+        :func:`~apparitor.decision.record_pre_engine_refusal` — never map ``None`` onto
+        a skip/allow (the inline adapters' SKIP-passes semantics do not apply here, and
+        a pass would turn a security guard fail-open). The reason stays in the operator
+        log (WARNING); no PDP trip is made.
+        """
+        if boundary_subject is None:
+            return await self.evaluate_requests([request])
+        try:
+            boundary_leg = build_boundary_leg(
+                request, boundary_subject, caller_subject=request.subject
+            )
+        except AuthZENConfigError as exc:
+            logger.warning("apparitor: boundary collapse guard refused: %s", exc)
+            return None
+        return await self.evaluate_requests([request, boundary_leg])
 
     async def evaluate_each(
         self,
@@ -288,20 +316,7 @@ class AuthorizationEngine:
 
         try:
             flat = [request for _, group in indexed for request in group]
-            response = await self._client.evaluate_batch(
-                BatchEvaluationRequest(
-                    evaluations=[
-                        EvaluationItem(
-                            subject=r.subject,
-                            action=r.action,
-                            resource=r.resource,
-                            context=r.context,
-                        )
-                        for r in flat
-                    ],
-                    options=EvaluationsOptions(),
-                )
-            )
+            response = await self._client.evaluate_batch(_to_batch(flat))
             if len(response.evaluations) != len(flat):
                 # Non-conformant PDP (short/long array): nothing in the batch is trustworthy.
                 raise AuthZENClientError("mismatched batch")
@@ -379,18 +394,7 @@ class AuthorizationEngine:
         return VerdictResult(verdict, _reason_for(verdict))
 
     async def _evaluate_batch(self, requests: list[EvaluationRequest]) -> VerdictResult:
-        batch = BatchEvaluationRequest(
-            evaluations=[
-                EvaluationItem(
-                    subject=r.subject, action=r.action, resource=r.resource, context=r.context
-                )
-                for r in requests
-            ],
-            # Our model authorizes EVERY tool call, so we always need every decision:
-            # execute_all. The short-circuit semantics don't fit "all calls must pass".
-            options=EvaluationsOptions(),
-        )
-        response = await self._client.evaluate_batch(batch)
+        response = await self._client.evaluate_batch(_to_batch(requests))
         decisions = [item.decision for item in response.evaluations]
         verdict = aggregate(decisions, expected=len(requests))
         if verdict is not Verdict.ALLOW:
@@ -442,6 +446,23 @@ class AuthorizationEngine:
         await self._client.aclose()
 
 
+def _to_batch(requests: Sequence[EvaluationRequest]) -> BatchEvaluationRequest:
+    """Shape evaluation requests as one AuthZEN batch.
+
+    Always ``execute_all``: our model authorizes EVERY tool call, so we always need every
+    decision — the short-circuit semantics don't fit "all calls must pass".
+    """
+    return BatchEvaluationRequest(
+        evaluations=[
+            EvaluationItem(
+                subject=r.subject, action=r.action, resource=r.resource, context=r.context
+            )
+            for r in requests
+        ],
+        options=EvaluationsOptions(),
+    )
+
+
 def _as_requests(
     mapped: EvaluationRequest | Sequence[EvaluationRequest] | None,
 ) -> list[EvaluationRequest]:
@@ -487,27 +508,8 @@ def _reason_for(verdict: Verdict) -> str:
     return _DENY_REASON
 
 
-#: Error message for the workload namespace guard (shared by all adapters).
-#: The "workload" type is reserved for verified client-credentials tokens (FastMCP) so
-#: minting claim-derived, static, or boundary principals in that namespace would alias
-#: machine policies on a shared PDP.
-WORKLOAD_RESERVED_MSG = 'subject type "workload" is reserved for verified client-credentials tokens'
-
-
-def build_engine(
-    pdp_url: str | None,
-    config: ScannerConfig | None,
-    *,
-    http_client: httpx.AsyncClient | None = None,
-    mapper: ToolCallMapper | None = None,
-    review_predicate: ReviewPredicate | None = None,
-    metrics: MetricsSink | None = None,
-) -> tuple[ScannerConfig, AuthorizationEngine]:
-    """Shared constructor prologue for every adapter.
-
-    Resolves the (pdp_url, config) mutual-exclusion and constructs the backend and engine
-    in one place so the four adapters stay DRY. Returns both the resolved config (adapters
-    need it for their own settings) and the constructed engine.
+def resolve_config(pdp_url: str | None, config: ScannerConfig | None) -> ScannerConfig:
+    """Resolve the (pdp_url, config) mutual-exclusion shared by every adapter constructor.
 
     Raises :class:`~apparitor.errors.AuthZENConfigError` when neither ``pdp_url`` nor
     ``config`` is provided (previously ``ValueError``; changed pre-1.0 for consistency with
@@ -518,15 +520,29 @@ def build_engine(
     if config is None:
         if pdp_url is None:
             raise AuthZENConfigError("provide either pdp_url or config")
-        from .config import ScannerConfig as _SC
+        config = ScannerConfig(pdp_url=pdp_url)
+    return config
 
-        config = _SC(pdp_url=pdp_url)
+
+def build_engine(
+    config: ScannerConfig,
+    *,
+    http_client: httpx.AsyncClient | None = None,
+    mapper: ToolCallMapper | None = None,
+    review_predicate: ReviewPredicate | None = None,
+    metrics: MetricsSink | None = None,
+) -> AuthorizationEngine:
+    """Construct the backend and engine from a resolved config (one place, all adapters).
+
+    Every adapter constructor first resolves its ``(pdp_url, config)`` pair via
+    :func:`resolve_config`, then builds the engine here — one calling convention, so the
+    mutual-exclusion check runs exactly once.
+    """
     backend = build_backend(config, http_client=http_client)
-    engine = AuthorizationEngine(
+    return AuthorizationEngine(
         config,
         client=backend,
         mapper=mapper,
         review_predicate=review_predicate,
         metrics=metrics,
     )
-    return config, engine

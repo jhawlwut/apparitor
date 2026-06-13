@@ -8,7 +8,7 @@ import pytest
 from apparitor.client import AuthZENClient
 from apparitor.config import OnError
 from apparitor.decision import Verdict, VerdictStatus
-from apparitor.engine import AuthorizationEngine, build_engine
+from apparitor.engine import AuthorizationEngine, build_engine, resolve_config
 from apparitor.errors import AuthZENConfigError
 
 pytestmark = pytest.mark.unit
@@ -882,27 +882,87 @@ async def test_decision_log_records_all_principals(
     assert "subjects=['alice@acme.com', 'travel-bot']" in caplog.text
 
 
-# --- build_engine factory -----------------------------------------------------------
+# --- resolve_config / build_engine factory -------------------------------------------
 
 
-def test_build_engine_both_none_raises() -> None:
+def test_resolve_config_both_none_raises() -> None:
     # Neither pdp_url nor config — adapter misconfiguration must be loud.
     with pytest.raises(AuthZENConfigError, match="pdp_url or config"):
-        build_engine(None, None)
+        resolve_config(None, None)
 
 
-def test_build_engine_both_provided_raises(make_config) -> None:
+def test_resolve_config_both_provided_raises(make_config) -> None:
     # Providing both is ambiguous; the docstring prohibits it and config silently winning
     # would be a surprise — reject explicitly.
     with pytest.raises(AuthZENConfigError, match="not both"):
-        build_engine("http://pdp.test", make_config())
+        resolve_config("http://pdp.test", make_config())
 
 
-def test_build_engine_pdp_url_only_builds_config() -> None:
-    # A bare URL must construct a ScannerConfig and return a live engine.
-    cfg, engine = build_engine("https://pdp.example.com/access/v1/evaluation", None)
+def test_resolve_config_passes_resolved_config_through(make_config) -> None:
+    cfg = make_config()
+    assert resolve_config(None, cfg) is cfg
+
+
+def test_resolve_config_pdp_url_only_builds_config_and_engine() -> None:
+    # A bare URL must construct a ScannerConfig that build_engine turns into a live engine.
+    cfg = resolve_config("https://pdp.example.com/access/v1/evaluation", None)
     assert str(cfg.pdp_url) == "https://pdp.example.com/access/v1/evaluation"
-    assert isinstance(engine, AuthorizationEngine)
+    assert isinstance(build_engine(cfg), AuthorizationEngine)
+
+
+# --- evaluate_with_boundary (adapter-shaped dual-principal seam) ----------------------
+
+
+@pytest.mark.asyncio
+async def test_evaluate_with_boundary_sends_caller_and_boundary_legs(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    # Both legs in ONE batch, caller leg first — the AND semantics of a permission boundary.
+    import json
+
+    from apparitor.models import Subject
+
+    route = respx_mock.post(_BATCH_URL).respond(
+        json={"evaluations": [{"decision": True}, {"decision": True}]}
+    )
+    engine = _engine(make_config(), noop_sleep)
+    result = await engine.evaluate_with_boundary(
+        _shaped_request(), Subject(type="agent", id="travel-bot")
+    )
+    assert result is not None and result.verdict is Verdict.ALLOW
+    sent = json.loads(route.calls[0].request.content)
+    assert [e["subject"]["id"] for e in sent["evaluations"]] == ["alice@acme.com", "travel-bot"]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_with_boundary_collapse_guard_refuses_without_pdp(
+    make_config, noop_sleep, respx_mock, caplog
+) -> None:
+    # Boundary == caller collapses the AND into one principal: refuse (None) before any
+    # PDP trip, with the operator WARNING — callers must treat None as a refusal.
+    import logging
+
+    from apparitor.models import Subject
+
+    route = respx_mock.post(_BATCH_URL)
+    engine = _engine(make_config(), noop_sleep)
+    with caplog.at_level(logging.WARNING, logger="apparitor"):
+        result = await engine.evaluate_with_boundary(
+            _shaped_request(), Subject(type="user", id="alice@acme.com")
+        )
+    assert result is None
+    assert route.call_count == 0
+    assert "collapse" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_evaluate_with_boundary_without_boundary_is_single_request(
+    make_config, noop_sleep, respx_mock
+) -> None:
+    respx_mock.post(_EVAL_URL).respond(json={"decision": False})
+    engine = _engine(make_config(), noop_sleep)
+    result = await engine.evaluate_with_boundary(_shaped_request(), None)
+    assert result is not None and result.verdict is Verdict.BLOCK
 
 
 # --- generic reason (no exception text to callers) ----------------------------------

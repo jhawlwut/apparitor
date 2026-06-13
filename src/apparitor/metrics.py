@@ -55,7 +55,8 @@ class InMemoryMetrics:
         self._buckets = tuple(sorted(buckets))
         #: Count of decisions keyed by ``(verdict, status)``.
         self.decisions: dict[tuple[str, str], int] = {}
-        # One slot per bucket plus a trailing +Inf overflow slot (non-cumulative).
+        # Deliberately NOT delegated to reset(): calling an overridable method from
+        # __init__ would run a subclass override before its own state exists.
         self._bucket_counts = [0] * (len(self._buckets) + 1)
         self.latency_sum_s = 0.0
         self.latency_count = 0
@@ -90,6 +91,7 @@ class InMemoryMetrics:
     def reset(self) -> None:
         """Zero all counters (tests / incident response)."""
         self.decisions.clear()
+        # One slot per bucket plus a trailing +Inf overflow slot (non-cumulative).
         self._bucket_counts = [0] * (len(self._buckets) + 1)
         self.latency_sum_s = 0.0
         self.latency_count = 0

@@ -63,7 +63,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from .config import ScannerConfig
 from .decision import VerdictResult, is_allowed_inline
-from .engine import ReviewPredicate, build_engine
+from .engine import ReviewPredicate, build_engine, resolve_config
 from .errors import MissingDependencyError
 from .mapping import current_request_context
 
@@ -138,9 +138,9 @@ class NeMoAuthorizationRails:
         metrics: MetricsSink | None = None,
         action_name: str = "authorize_tool_calls",
     ) -> None:
-        self._config, self._engine = build_engine(
-            pdp_url,
-            config,
+        self._config = resolve_config(pdp_url, config)
+        self._engine = build_engine(
+            self._config,
             http_client=http_client,
             mapper=mapper,
             review_predicate=review_predicate,

@@ -78,23 +78,21 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from .adapters import NormalizedToolCall
-from .config import ScannerConfig
 from .decision import (
-    DUAL_PRINCIPAL_CACHE_WARNING,
-    Verdict,
     VerdictResult,
     is_allowed_gateway,
     record_pre_engine_refusal,
+    refusal_message,
+    validate_gateway_subject_config,
 )
-from .engine import WORKLOAD_RESERVED_MSG, ReviewPredicate, build_engine
-from .errors import AuthZENConfigError, MissingDependencyError
+from .engine import ReviewPredicate, build_engine, resolve_config
+from .errors import MissingDependencyError
 from .mapping import (
     MCP_SERVER_LABEL_KEY,
     MCPResourceMapper,
-    build_boundary_leg,
     current_request_context,
-    current_subject,
     request_context_attrs,
+    request_scoped_subject,
 )
 from .models import Action, EvaluationRequest, Resource, Subject
 
@@ -115,21 +113,11 @@ if TYPE_CHECKING:
     from fastmcp.server.middleware import CallNext, MiddlewareContext
     from fastmcp.tools.tool import ToolResult
 
+    from .config import ScannerConfig
     from .mapping import ToolCallMapper
     from .metrics import MetricsSink
 
 logger = logging.getLogger("apparitor")
-
-
-def _refusal(noun: str, verdict: VerdictResult | None) -> str:
-    """Generic, per-surface refusal text; HUMAN_REVIEW stays distinguishable for hosts.
-
-    This text crosses the trust boundary to the client/model, so it is fixed and generic —
-    never the engine's reason, which may embed PDP/config detail (requirements §3.10).
-    """
-    if verdict is not None and verdict.verdict is Verdict.HUMAN_REVIEW:
-        return f"{noun} requires human approval; do not retry"
-    return f"{noun} not authorized"
 
 
 class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastmcp may be absent in the lint env (base is Any)
@@ -168,21 +156,14 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
         metrics: MetricsSink | None = None,
     ) -> None:
         super().__init__()
-        # Resolve config first so workload guards can check config.subject_type.
-        if pdp_url is not None and config is not None:
-            raise AuthZENConfigError("provide pdp_url or config, not both")
-        if config is None:
-            if pdp_url is None:
-                raise AuthZENConfigError("provide either pdp_url or config")
-            config = ScannerConfig(pdp_url=pdp_url)
-        # "workload" is reserved for verified client-credentials tokens: minting
-        # claim-derived or static subjects in that namespace would alias machine policies.
-        if subject_type == "workload" or (
-            allow_static_subject and config.subject_type == "workload"
-        ):
-            raise AuthZENConfigError(WORKLOAD_RESERVED_MSG)
-        if boundary_subject is not None and boundary_subject.type == "workload":
-            raise AuthZENConfigError(WORKLOAD_RESERVED_MSG)
+        # Resolve config first so the workload guards can check config.subject_type.
+        config = resolve_config(pdp_url, config)
+        validate_gateway_subject_config(
+            config,
+            subject_type=subject_type,
+            allow_static_subject=allow_static_subject,
+            boundary_subject=boundary_subject,
+        )
         self._config = config
         self._server_label = server_label
         self._subject_type = subject_type
@@ -193,16 +174,13 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
         self._gate_resources = gate_resources
         self._gate_prompts = gate_prompts
         self._boundary_subject = boundary_subject
-        _, self._engine = build_engine(
-            None,  # config already resolved above
+        self._engine = build_engine(
             config,
             http_client=http_client,
             mapper=mapper or MCPResourceMapper(config),
             review_predicate=review_predicate,
             metrics=metrics,
         )
-        if boundary_subject is not None and config.cache_enabled:
-            logger.warning(DUAL_PRINCIPAL_CACHE_WARNING)
         # One line an operator can find when diagnosing "why is X denied after upgrade".
         logger.info(
             "apparitor: FastMCP middleware gating tools/call%s%s%s%s",
@@ -308,14 +286,14 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
             # generic message is deliberate — exception text must not reach the client.
             logger.exception("apparitor: FastMCP authorization middleware error (refusing)")
             record_pre_engine_refusal(self._engine.metrics)
-            raise error_cls(_refusal(noun, None)) from None
+            raise error_cls(refusal_message(noun, None)) from None
         if verdict is not None and is_allowed_gateway(verdict):
             return await call_next(context)
         if verdict is None:
             # No resolvable subject: the engine never ran, so this refusal is invisible to
             # its metrics unless we count it here (else an all-misconfigured fleet logs zero).
             record_pre_engine_refusal(self._engine.metrics)
-        raise error_cls(_refusal(noun, verdict))
+        raise error_cls(refusal_message(noun, verdict))
 
     async def _authorize(
         self, context: MiddlewareContext[mt.CallToolRequestParams]
@@ -345,16 +323,7 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
         request = shape(context, ctx)
         if request is None:
             return None
-        if self._boundary_subject is not None:
-            try:
-                boundary_leg = build_boundary_leg(
-                    request, self._boundary_subject, caller_subject=request.subject
-                )
-            except AuthZENConfigError as exc:
-                logger.warning("apparitor: boundary collapse guard refused: %s", exc)
-                return None
-            return await self._engine.evaluate_requests([request, boundary_leg])
-        return await self._engine.evaluate_requests([request])
+        return await self._engine.evaluate_with_boundary(request, self._boundary_subject)
 
     async def _visible_tools(self, context: MiddlewareContext[Any], names: list[str]) -> set[str]:
         """The subset of ``names`` whose ``tools/call`` the subject would be allowed."""
@@ -464,12 +433,9 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
                 self._subject_claim,
             )
             return None
-        injected = request_context.get("subject")
-        if isinstance(injected, Subject):
-            return injected
-        ambient = current_subject.get()
-        if ambient is not None:
-            return ambient
+        host_provided = request_scoped_subject(request_context)
+        if host_provided is not None:
+            return host_provided
         if self._allow_static_subject and self._config.agent_id is not None:
             return Subject(type=self._config.subject_type, id=self._config.agent_id)
         logger.warning(
