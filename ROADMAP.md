@@ -9,6 +9,21 @@ implements is specified in [`docs/requirements.md`](docs/requirements.md).
 
 Status legend: ✅ done · 🔜 next · 📋 planned.
 
+## At a glance
+
+- **Now — `0.1.0` (in progress):** the core evaluation pipeline, all four enforcement
+  points (LlamaFirewall, NeMo, FastMCP, A2A), three policy-engine backends (AuthZEN,
+  native OPA, native Cedar), dual-principal (user ∧ agent) evaluation, conformance, and the
+  internal adversarial security review have landed. Remaining before the tag: the PyPI
+  publish (OIDC trusted publishing, SBOM), the documentation site, and the Amazon Verified
+  Permissions cloud example.
+- **Next:** a direct **OpenFGA** backend (its own Check API) and a managed **Amazon Verified
+  Permissions** backend (boto3) — both on the existing pluggable decision-backend seam.
+- **Later (adoption-gated):** an independent third-party security review, plus the deferred
+  items under [Out of scope](#out-of-scope-tracked-deferred).
+
+The milestones below are the backing detail.
+
 ## ✅ M0 — Architecture & scaffold
 
 - Technical requirements, architecture, and setup docs.
@@ -47,7 +62,7 @@ Status legend: ✅ done · 🔜 next · 📋 planned.
 
 **Remaining:** the **Amazon Verified Permissions** (managed Cedar) cloud example.
 
-## 📋 M4 — Hardening & first release
+## 🔜 M4 — Hardening & first release (in progress)
 
 - ✅ **Internal adversarial security review** ([`docs/security-review.md`](docs/security-review.md)):
   three attacker-focused slices (core engine + transport; mapping layer + four enforcement
@@ -83,10 +98,12 @@ sponsorship. The current assurance baseline is the documented threat model
 ([`docs/requirements.md`](docs/requirements.md)), the tested invariants in the unit
 suite, and the internal adversarial review linked above.
 
-## Beyond v0.1 — the aggregator
+## The aggregator (mostly shipped in `0.1.0`)
 
-This is where apparitor broadens from "an AuthZEN scanner for LlamaFirewall" into an
-aggregator across the popular agentic firewalls and policy engines.
+This is where apparitor broadened from "an AuthZEN scanner for LlamaFirewall" into an
+aggregator across the popular agentic firewalls and policy engines. Most of it landed in
+`0.1.0` (marked ✅ below); the unshipped items are the direct OpenFGA and managed AVP
+backends called out under [At a glance](#at-a-glance).
 
 ### More enforcement points (firewalls, MCP, A2A)
 
@@ -121,7 +138,7 @@ aggregator across the popular agentic firewalls and policy engines.
 - Keep the host-specific surface thin: only the adapter module may import a host SDK; the
   core stays standalone.
 
-### ✅ / 🔜 Native policy-engine adapters (skip the AuthZEN hop)
+### Native policy-engine adapters (skip the AuthZEN hop)
 
 - A pluggable **decision-backend** interface so a deployment selects its engine by config
   (`ScannerConfig(backend=...)`), reusing one hardened transport (SSRF guard, TLS, bounded

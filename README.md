@@ -5,42 +5,49 @@
 [![CodeQL](https://github.com/jhawlwut/apparitor/actions/workflows/codeql.yml/badge.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/codeql.yml)
 [![pip-audit](https://github.com/jhawlwut/apparitor/actions/workflows/pip-audit.yml/badge.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/pip-audit.yml)
 [![Aikido Security](https://img.shields.io/badge/Aikido%20Security-scanned%20daily-4c1?logo=aikido&logoColor=white)](https://app.aikido.dev/repositories/2253820/checks)
-[![Coverage](https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/core%20coverage-%E2%89%A590%25-brightgreen.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
-**An authorization layer for AI agents.** apparitor checks every agent action — a tool
-call, an MCP request, an agent-to-agent invocation — against the authorization policy
-engine you already trust, *before* it executes. Vendor-neutral, Apache-2.0, built
-entirely on public standards.
+**Your agents route around the authorization you already run.** apparitor brings them
+back under it: every agent action — an LLM tool call, an MCP request, an agent-to-agent
+invocation — is checked against the policy engine you already trust (OpenFGA, Cedar, OPA),
+*before* it executes. It answers the question content-safety layers never ask: is this
+agent *allowed* to do this? Vendor-neutral, built on the AuthZEN 1.0 interop standard,
+Apache-2.0.
 
 ## The gap
 
-Your agent decides to act. Every safety layer in the stack inspects the *content* of
-that action — is the prompt a jailbreak, is the generated code malicious — and none of
-them asks the question your security model actually depends on: is this agent
-**allowed** to do this, for this user, right now?
+Every safety layer in your stack inspects the *content* of an agent's action — is the
+prompt a jailbreak, is the generated code malicious. None asks the question your security
+model actually depends on: is this agent **allowed** to do this — for this user, against
+this resource, right now?
+
+The actions that matter most are the ones that look harmless. An agent reading a customer
+record is benign text; reading *another tenant's* record is a breach. No content scanner
+can tell them apart — the difference isn't in the text, it's in who is acting and what
+they're entitled to.
 
 ```text
-Agent: "Delete the production database"
+Agent for alice@acme  →  read_records(tenant="globex")
          │
          ▼
-   Safety scanning    → "Is this prompt malicious?"            → PASS (it's not a jailbreak)
+   Safety scanning    → "Is this prompt malicious?"             → PASS (benign request)
          │
          ▼
-   ??? nothing ???    → "Is this agent authorized to do this?" → NO CHECK
+   ??? nothing ???    → "May alice@acme read globex's records?" → NO CHECK
          │
          ▼
-   Tool executes.  Production database deleted.
+   Tool executes.  Cross-tenant data returned.
 ```
 
-That missing hop is an authorization decision, and authorization already has mature,
-auditable engines. apparitor routes each agent action to a policy decision point (PDP)
-and maps the verdict back onto the enforcement point's `ALLOW` / `BLOCK` /
-`HUMAN_IN_THE_LOOP` model:
+That missing hop is an authorization decision — and you almost certainly run an engine
+that makes them already. It just isn't wired to the point where the agent acts. apparitor
+is that wiring: it routes each agent action to a policy decision point (PDP) and maps the
+verdict onto the enforcement point's `ALLOW` / `BLOCK` / `HUMAN_IN_THE_LOOP` model.
 
 ```text
-Agent: "Delete the production database"
+Agent for alice@acme  →  read_records(tenant="globex")
          │
          ▼
    Safety scanning (PromptGuard, AlignmentCheck, CodeShield, …)            → PASS
@@ -50,8 +57,35 @@ Agent: "Delete the production database"
          │                                                    │
          │  ◀────────────────── { "decision": false } ────────┘
          ▼
-   BLOCK — "agent travel-bot-123 is not authorized for tool_call.execute on database.delete_table"
+   BLOCK — "alice@acme is not authorized to call read_records for tenant globex"
 ```
+
+## Why not just write the check yourself?
+
+The naive version — `if allowed: run()` — is a security bug in four ways apparitor exists
+to handle:
+
+- **The subject is a [confused-deputy](https://en.wikipedia.org/wiki/Confused_deputy_problem)
+  trap.** The firewall layer sees model output, not an authenticated principal. Infer *who
+  is acting* from the tool call and the agent can name its own privileged subject.
+  apparitor takes the subject from the host, request-scoped — at the MCP boundary, from the
+  *validated* OAuth token — never from model output. See
+  [Identity](#identity-who-the-agent-acts-for).
+- **The default failure is fail-open.** A timed-out PDP, a `5xx`, a missing or non-boolean
+  `decision`, an unparseable call — each is a falsy `allowed` your `if` waves through.
+  apparitor resolves every one to BLOCK or human review; there is no fail-open option. See
+  [Fail-closed by default](#fail-closed-by-default).
+- **You would write it four times.** The check belongs at the firewall, the MCP server,
+  and the agent-to-agent boundary — different objects, different identity sources.
+  apparitor is one engine behind four adapters.
+- **The agent should be more constrained than its user.** A jailbroken agent acting for a
+  privileged user must not borrow that user's rights. apparitor can evaluate *both* the
+  user's grant and the agent's own permission boundary, proceeding only when both allow —
+  a separately-audited control that holds across engines. See
+  [Level 2](#identity-who-the-agent-acts-for).
+
+And you write no new policy: it stays in the engine your org already authors policy in,
+audited where the rest of your authorization lives.
 
 **Four enforcement points, one engine.** The check runs wherever your stack lets you
 intercept the action: inside an agentic firewall — as a
@@ -63,16 +97,21 @@ executor. Same engine, same fail-closed semantics everywhere; only the boundary 
 **One integration, many policy engines.** apparitor speaks the
 [AuthZEN 1.0](https://openid.net/specs/authorization-interop-spec-1_0.html) interop
 standard, so the same wiring reaches the engines you already author policy in —
-**OpenFGA** (Zanzibar / ReBAC), **Cedar** (policy-as-code), and **OPA / Rego** — with no
-policy rewrite. OPA and Cedar also have native backends that skip the AuthZEN hop.
+**OpenFGA** (Zanzibar / ReBAC, experimental), **Cedar** (policy-as-code), and **OPA /
+Rego** — with no policy rewrite. OPA and Cedar also have native backends that skip the
+AuthZEN hop.
 
 > **Status: `0.1.0` — beta.** **Shipping today:** all four enforcement points above and
-> the AuthZEN evaluation pipeline, working end-to-end against any
-> AuthZEN 1.0 PDP (OpenFGA, Cedar, OPA, Cerbos, Topaz) plus native OPA and in-process
-> Cedar backends, with ≥90% test coverage (CI-enforced) on the adapter-free core (see
-> [`CHANGELOG`](CHANGELOG.md)). **On the roadmap:** a native OpenFGA backend and the
-> code-exec enforcement point. APIs may change — see
+> the AuthZEN evaluation pipeline, working end-to-end against any AuthZEN 1.0 PDP (OpenFGA,
+> Cedar, OPA, Cerbos, Topaz) plus native OPA and in-process Cedar backends, with ≥90% test
+> coverage (CI-enforced) on the adapter-free core (see [`CHANGELOG`](CHANGELOG.md)).
+> Fail-closed on every error path, subject isolation, and an SSRF-guarded transport are
+> tested invariants; an internal adversarial security review (six findings, all fixed) is
+> documented in [`docs/security-review.md`](docs/security-review.md), and an independent
+> external review is an adoption-gated goal, not yet done. Solo-maintained, best-effort
+> cadence. **On the roadmap:** a native OpenFGA backend — see
 > [`docs/requirements.md`](docs/requirements.md) for the design and [`ROADMAP`](ROADMAP.md).
+> APIs may change.
 
 ## Installation
 
