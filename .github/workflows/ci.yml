@@ -241,6 +241,24 @@ jobs:
       - name: Run the scenario walk-through
         run: python examples/scenarios/run.py
 
+  # Proves the audit-log + metrics contract from the consumer side (core install only): every
+  # C1/C2/C3 line is emitted, parsed with ast.literal_eval, and verified, and the custom sink
+  # renders a Prometheus scrape. Complements tests/unit/test_log_contract.py (which pins the
+  # producer side) with a runnable consumer.
+  observability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      # Core only — the audit log and metrics need no optional extras.
+      - run: uv pip install --system -e .
+      - name: Run the observability walk-through
+        run: python examples/observability/run.py
+
   # The A2A executor adapter's only hard dependency is a2a-sdk, so its end-to-end test runs
   # in a dedicated job that installs the extra — keeping it out of the default [dev] run,
   # like the scanner, cedar, nemo and fastmcp jobs. The SDK's own [http-server] extra powers

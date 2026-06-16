@@ -278,8 +278,10 @@ Each decision also emits one structured audit line (verdict, status, subject id,
 correlation id, resource ids, argument *fingerprint*); raw arguments and tokens are never
 logged. The subject id is the decision principal (the OAuth `sub` under FastMCP, which may
 be an email), so treat the `apparitor` logger as sensitive. The log format is a stability
-contract from `0.1.0`. See [docs/audit-log.md](docs/audit-log.md) and
-[docs/requirements.md](docs/requirements.md) (§3.10).
+contract from `0.1.0`. For a runnable walk-through — configuring the logger, emitting and
+parsing every contract line, and a Prometheus scrape — see
+[`examples/observability/`](examples/observability/). See [docs/audit-log.md](docs/audit-log.md)
+and [docs/requirements.md](docs/requirements.md) (§3.10).
 
 ## What apparitor connects
 
