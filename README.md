@@ -162,47 +162,68 @@ commands.
 
 ## Quickstart
 
-Pick the enforcement point your stack already has; the engine behind each is the same.
+Pick the enforcement point your stack already has. The same `AuthorizationEngine` runs
+behind each one; only the boundary and the identity source differ. Point any of them at an
+AuthZEN-compliant policy decision point (PDP) with `pdp_url`, and resolve a subject per
+request (recommended) or set a static `agent_id`. See
+[Identity: who the agent acts for](#identity-who-the-agent-acts-for).
 
-**Inside LlamaFirewall:** point the scanner at any AuthZEN-compliant policy decision
-point (PDP) and bind it to the assistant role, so it gates tool calls before they are
-dispatched. Tool calls in OpenAI, Anthropic, and LangChain shapes are detected and
-normalised automatically; an unrecognised shape blocks (fail closed):
+**FastMCP server middleware** (`pip install "apparitor[fastmcp]"`). Gates `tools/call`,
+`resources/read`, and `prompts/get` server-side before the tool runs. The subject is the
+*validated* OAuth `sub`, never a host assertion, so register it after your auth middleware.
+Worked proxy example in [`examples/gateway/`](examples/gateway/).
+
+```python
+from fastmcp import FastMCP
+from apparitor.fastmcp import FastMCPAuthorizationMiddleware
+
+server = FastMCP("files", auth=...)  # auth yields the validated token identity
+server.add_middleware(FastMCPAuthorizationMiddleware(pdp_url="https://pdp.internal"))
+```
+
+**A2A agent executor** (`pip install "apparitor[a2a]"`). Authorizes every agent-to-agent
+`agent.invoke` before the wrapped executor runs; the subject is the server's authenticated
+peer.
+
+```python
+from a2a.server.request_handlers import DefaultRequestHandler
+from apparitor.a2a import A2AAuthorizationExecutor
+
+guarded = A2AAuthorizationExecutor(
+    MyExecutor(), pdp_url="https://pdp.internal", agent_label="travel-agent"
+)
+handler = DefaultRequestHandler(agent_executor=guarded, task_store=..., agent_card=...)
+```
+
+**Inside LlamaFirewall** (`pip install "apparitor[llamafirewall]"`). Bind the scanner to the
+assistant role so it gates tool calls before they dispatch. Tool calls in OpenAI, Anthropic,
+and LangChain shapes are normalised automatically; an unrecognised shape blocks (fail closed).
 
 ```python
 from llamafirewall import LlamaFirewall, Role
 from apparitor import AuthZENScanner, ScannerConfig
 
-# Point at any AuthZEN-compliant PDP. Secure defaults: fail-closed, TLS-verified.
-# A subject must be resolvable: set config.agent_id, or current_subject per request.
 scanner = AuthZENScanner(config=ScannerConfig(pdp_url="https://pdp.internal", agent_id="travel-bot"))
-
 firewall = LlamaFirewall(scanners={Role.ASSISTANT: [scanner]})
 result = await firewall.scan_async(assistant_message)   # ALLOW / BLOCK / HUMAN_IN_THE_LOOP
 ```
 
-Per request, supply the real end user the agent acts for (recommended over a static
-`agent_id`). See [Identity: who the agent acts for](#identity-who-the-agent-acts-for).
+**NeMo Guardrails rail** (`pip install "apparitor[nemo]"`). Registers as a custom action; the
+rail refuses denied tool calls, fail-closed under NeMo's mapping. The rail flow lives in your
+NeMo config (see the module docstring). Exercised in [`examples/three-peps/`](examples/three-peps/).
 
-The same `AuthorizationEngine` runs behind the other three enforcement points; only the
-boundary and the identity source differ:
+```python
+from nemoguardrails import LLMRails, RailsConfig
+from apparitor.nemo import NeMoAuthorizationRails
 
-- **NeMo Guardrails rail** — `pip install "apparitor[nemo]"`, `NeMoAuthorizationRails`.
-  Registers as a custom action; the rail refuses denied tool calls, fail-closed under
-  NeMo's mapping. Exercised in [`examples/three-peps/`](examples/three-peps/).
-- **FastMCP server middleware** — `pip install "apparitor[fastmcp]"`,
-  `FastMCPAuthorizationMiddleware`. Gates `tools/call`, `resources/read`, and `prompts/get`
-  server-side before the tool runs; the subject is the *validated* OAuth `sub`, never a
-  host assertion. Register it **after** your auth middleware. Worked proxy example in
-  [`examples/gateway/`](examples/gateway/).
-- **A2A agent executor** — `pip install "apparitor[a2a]"`, `A2AAuthorizationExecutor`.
-  Gates every agent-to-agent `agent.invoke`; the subject is the server's authenticated
-  peer.
+rails = LLMRails(RailsConfig.from_path("config"))
+NeMoAuthorizationRails(pdp_url="https://pdp.internal").register(rails)
+```
 
-Each adapter has more options (list filtering, dual-principal boundaries, per-hook
-opt-outs) documented in its module docstring; see [docs/setup.md](docs/setup.md) for
-per-engine wiring. The AuthZEN client and models are **adapter-free** and usable on their
-own — `from apparitor.models import EvaluationRequest` needs no firewall dependency.
+Each adapter has more options (list filtering, dual-principal boundaries, per-hook opt-outs)
+documented in its module docstring; see [docs/setup.md](docs/setup.md) for per-engine wiring.
+The AuthZEN client and models are **adapter-free** and usable on their own:
+`from apparitor.models import EvaluationRequest` needs no firewall dependency.
 
 ## Identity: who the agent acts for
 
