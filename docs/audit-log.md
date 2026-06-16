@@ -3,7 +3,8 @@
 Every authorization decision emits one structured log line on the `apparitor` logger.
 This document freezes the schema from `0.1.0` as a stability contract. A failure in
 `tests/unit/test_log_contract.py` is a breaking log-schema change; see the stability
-policy below.
+policy below. For a runnable walk-through that configures the logger and emits, parses, and
+verifies every contract line below, see [`examples/observability/`](../examples/observability/).
 
 ## Logger
 
