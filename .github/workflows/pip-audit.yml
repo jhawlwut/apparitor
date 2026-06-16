@@ -1,8 +1,7 @@
 # pip-audit (PyPA) — audits the installed dependency tree against the Python Packaging
-# Advisory Database (PyPI/OSV) and fails on a known vulnerability. Unlike the Scorecard and
-# CodeQL workflows, this needs nothing special and runs now (including while the repo is
-# private) — it is real scanning, not a vanity badge. The weekly run catches CVEs disclosed
-# after a dependency was last touched.
+# Advisory Database (PyPI/OSV) and fails on a known vulnerability. This is real dependency
+# scanning, not a vanity badge: the weekly run catches CVEs disclosed after a dependency was
+# last touched.
 #
 # Actions are pinned by commit SHA (Dependabot keeps them current via the version comment).
 name: pip-audit
