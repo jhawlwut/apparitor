@@ -1,7 +1,7 @@
 # OpenFGA example
 
-Wires the scanner to [OpenFGA](https://openfga.dev) — a Zanzibar-style,
-**relationship-based (ReBAC)** engine — through its native, experimental **AuthZEN**
+Wires the scanner to [OpenFGA](https://openfga.dev), a Zanzibar-style,
+**relationship-based (ReBAC)** engine, through its native, experimental **AuthZEN**
 API. OpenFGA implements AuthZEN single and batch evaluation by mapping each request onto
 its `Check` endpoint, so the scanner talks to it with no OpenFGA-specific code.
 
@@ -9,7 +9,7 @@ its `Check` endpoint, so the scanner talks to it with no OpenFGA-specific code.
 
 `agent:demo-agent` is granted `can_execute` on a small allow-list of tools. The scanner
 sends an AuthZEN evaluation per tool call; OpenFGA returns `decision: true` for a granted
-tool and `decision: false` for anything ungranted — which the scanner maps to `ALLOW` /
+tool and `decision: false` for anything ungranted, which the scanner maps to `ALLOW` /
 `BLOCK`.
 
 The vendored model (`model.json`, shown below as DSL) and tuples (`tuples.json`) are
@@ -54,7 +54,7 @@ down on exit.
 
 Where the Docker registry is unreachable but `github.com` is not (restricted-egress CI,
 sandboxes), the integration test can run OpenFGA from its pinned release binary
-(**linux/amd64 only**) instead of a container — downloaded once and **SHA-256-verified**
+(**linux/amd64 only**) instead of a container. It is downloaded once and **SHA-256-verified**
 before it runs:
 
 ```bash

@@ -2,7 +2,7 @@
 
 This document states the standing security invariants of the `apparitor` authorization
 layer, the threat-model coverage they address, the assurance basis, and the triggers for
-re-review. It is intended to be read alongside the threat model in
+re-review. Read it alongside the threat model in
 [`docs/requirements.md`](requirements.md) and the secure-by-default posture in
 [`SECURITY.md`](../SECURITY.md).
 
@@ -13,7 +13,7 @@ and the changelog.
 ## Scope & coverage
 
 **Reviewed against:** [`docs/requirements.md`](requirements.md) (full threat model,
-§§3.1–3.10) and [`SECURITY.md`](../SECURITY.md) (secure-by-default posture).
+§§3.1 to 3.10) and [`SECURITY.md`](../SECURITY.md) (secure-by-default posture).
 
 **Attacker-focused slices:**
 
@@ -26,10 +26,9 @@ and the changelog.
 ## Assurance basis / independence
 
 The posture below is established by an internal adversarial review plus the tested
-invariants documented in each section. This is **not** an independent third-party audit;
-it should not be treated as equivalent to an independent external assessment. An
-independent review is a planned post-public goal — see [ROADMAP.md](../ROADMAP.md) for
-how it will be pursued.
+invariants documented in each section. This is **not** an independent third-party audit
+and should not be treated as one. An independent review is a planned post-public goal.
+See [ROADMAP.md](../ROADMAP.md) for how it will be pursued.
 
 ## Security properties & invariants
 
@@ -38,8 +37,8 @@ inline. The cited tests exist in `tests/unit/` on this branch.
 
 ### Subject identity isolation
 
-The system guarantees that no attacker-controlled content — model output, tool arguments,
-or message text — can reach an authorization decision or influence the subject identity
+The system guarantees that no attacker-controlled content (model output, tool arguments,
+or message text) can reach an authorization decision or influence the subject identity
 used in any of the four enforcement adapters.
 
 - Subject is read from one of: the request-scoped `current_subject` `ContextVar`
@@ -70,7 +69,7 @@ option.
   read as an allow on either the aggregate or per-item path.
 - An unparseable tool call always produces `BLOCK`, never `SKIPPED`.
 - `asyncio.CancelledError` is caught, a `block/error` metric is recorded, and the error
-  re-propagates — a cancelled call is never silently indistinguishable from ALLOW.
+  re-propagates. A cancelled call is never silently indistinguishable from ALLOW.
 
 Enforcing tests:
 `tests/unit/test_security.py::test_pdp_failure_with_on_error_deny_blocks`,
@@ -90,7 +89,7 @@ reaches the verdict logic.
 - `StrictBool` rejects non-bool decisions (`1`, `"true"`, `0`, `null`, absent field).
 - A duplicate JSON key within a PDP response object raises `MalformedPDPResponseError`.
   Sibling objects in a batch response (multiple `"decision"` fields in distinct array
-  entries) are correctly not flagged — the check is per-object.
+  entries) are correctly not flagged; the check is per-object.
 - The fix applies to both the AuthZEN transport and the OPA backend.
 
 Enforcing tests:
@@ -106,7 +105,7 @@ ALLOW surface or leak decisions across subjects or argument values.
 
 - ALLOW-only: DENY, error, and HUMAN_REVIEW verdicts are never cached.
 - Full-tuple SHA-256 key over subject, action, resource (including argument hash), and
-  context — cross-user and cross-argument isolation enforced at the key level.
+  context. Cross-user and cross-argument isolation is enforced at the key level.
 - Hard TTL ceiling; any PDP-suggested TTL is clamped down.
 - Dual-principal evaluation always bypasses the cache (logged as a warning when
   `cache_enabled=True`).
@@ -126,7 +125,7 @@ derived from a message, is validated before any outbound HTTP request.
 - Enforces HTTPS; rejects private/RFC1918/loopback/link-local addresses including
   IPv4-mapped IPv6 (`::ffff:10.x.x.x` etc.).
 - Redirects are disabled on the httpx client.
-- `pdp_url` is operator config only — never derived from a message.
+- `pdp_url` is operator config only, never derived from a message.
 
 Enforcing tests:
 `tests/unit/test_security.py::test_client_refuses_private_pdp_url`,
@@ -154,7 +153,7 @@ The system guarantees that metrics and log-sink failures cannot affect verdict d
 - Sink failures are caught and logged at `ERROR` but do not alter or delay the verdict.
 - The decision is returned before the sink call where possible.
 - A raising sink on the `asyncio.CancelledError` path cannot replace `CancelledError` with
-  a metrics exception — `_record_cancelled` isolates the write so structured concurrency
+  a metrics exception. `_record_cancelled` isolates the write so structured concurrency
   propagation is never masked.
 
 Enforcing tests:
@@ -198,7 +197,7 @@ ALLOW. SKIP and ALLOW are distinct paths; SKIP abstains, it does not grant.
 ## Known limitations & accepted risks
 
 - **DNS rebinding.** An operator-configured non-literal PDP hostname is not
-  rebinding-resistant at the httpx layer. This is out of scope by design — pair with
+  rebinding-resistant at the httpx layer. This is out of scope by design; pair with
   network egress controls at the deployment level. Documented in `client.py`.
 - **LlamaFirewall ML stack internals.** Only apparitor's use of LlamaFirewall was
   reviewed; the ML model internals were not audited.
@@ -213,7 +212,7 @@ ALLOW. SKIP and ALLOW are distinct paths; SKIP abstains, it does not grant.
 
 Re-run this review when any of the following change:
 
-- The threat model (`docs/requirements.md` §§3.5–3.10) or `SECURITY.md`.
+- The threat model (`docs/requirements.md` §§3.5 to 3.10) or `SECURITY.md`.
 - The AuthZEN transport or OPA/Cedar backend response parsing (`client.py`, `backends.py`,
   `cedar.py`).
 - The mapping layer or any enforcement adapter (`mapping.py`, `scanner.py`, `nemo.py`,

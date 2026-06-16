@@ -1,7 +1,7 @@
 # Setup: connecting to a policy engine
 
 apparitor speaks the AuthZEN 1.0 Access Evaluation API, so it reaches any compliant policy
-decision point (PDP). Point it at an endpoint and go:
+decision point (PDP). Point it at an endpoint:
 
 ```python
 from apparitor import AuthZENScanner
@@ -49,16 +49,16 @@ scanner = AuthZENScanner(
 
 ## Identity: resolving the subject
 
-The **subject** is the principal the PDP authorizes — usually the end user the agent acts
+The **subject** is the principal the PDP authorizes, usually the end user the agent acts
 for, not the agent process. apparitor resolves it per request, in this order, and fails
 closed (`AuthZENConfigError`) if none is found:
 
 1. a `subject` in `current_request_context`,
 2. the `current_subject` context variable (set it with `subject_scope`),
-3. `config.agent_id` — a static fallback, mapped to `Subject(type=config.subject_type, id=agent_id)`.
+3. `config.agent_id`, a static fallback, mapped to `Subject(type=config.subject_type, id=agent_id)`.
 
 Bind the authenticated user for the agent run with `subject_scope` rather than setting
-`current_subject` directly — it resets the value on exit, so a subject can never leak to a
+`current_subject` directly. It resets the value on exit, so a subject can never leak to a
 later request that reuses the same task or event loop:
 
 ```python
@@ -71,12 +71,12 @@ with subject_scope(Subject(type="user", id=authenticated_user_id)):
 
 Attach request-scoped enrichment via `current_request_context`: `user_id`, `conversation_id`,
 and `correlation_id` are forwarded to the PDP as AuthZEN `context` for policy conditions. (A
-`subject` placed here is instead used to resolve the request's subject — see the order above —
+`subject` placed here is instead used to resolve the request's subject, per the order above,
 not forwarded as context.) The `correlation_id` value also appears verbatim in the C1 audit
-log line — see [audit-log.md](audit-log.md) for the full log schema and stability
+log line. See [audit-log.md](audit-log.md) for the full log schema and stability
 contract.
 
-Use `request_context_scope` rather than calling `.set()/.reset()` directly — it ensures the
+Use `request_context_scope` rather than calling `.set()/.reset()` directly. It ensures the
 context is always cleared on exit and cannot leak to a later request that reuses the same task:
 
 ```python
@@ -87,7 +87,7 @@ with request_context_scope({"user_id": "alice@acme.com", "conversation_id": "c-4
 ```
 
 > **Security:** the subject and request context must be **host-trusted, out-of-band** data,
-> established by your authentication layer — never derived from model output or a tool result.
+> established by your authentication layer, never derived from model output or a tool result.
 > Deriving the principal from model output would let a prompt-injected agent choose its own
 > identity (a confused deputy). See [requirements.md](requirements.md).
 
@@ -99,8 +99,8 @@ external services) lives in [`examples/mock_pdp/`](../examples/mock_pdp/). Start
 ## OpenFGA (Zanzibar / relationship-based)
 
 [OpenFGA](https://openfga.dev) exposes the AuthZEN Access Evaluation API **natively**
-(single and batch) as an [experimental feature](https://openfga.dev/docs/interacting/authzen)
-— enable it with the AuthZEN experimental flag and pin the server version, since the API
+(single and batch) as an [experimental feature](https://openfga.dev/docs/interacting/authzen).
+Enable it with the AuthZEN experimental flag and pin the server version, since the API
 surface may still change. Agent tool authorization maps cleanly onto OpenFGA's
 `type:id` + relation model: `resource{type:"tool", id:<name>}` and an
 `action`/relation like `tool_call.execute`. The worked example lives in
@@ -115,7 +115,7 @@ with sample policies.
 
 ### Cedar native backend (`backend="cedar"`, `[cedar]` extra)
 
-The native backend evaluates Cedar policies **in-process** via `cedarpy` — no server, no
+The native backend evaluates Cedar policies **in-process** via `cedarpy`: no server, no
 gateway, no network. The decision never leaves the host, making this the sovereignty- and
 ops-lightest Cedar option.
 
@@ -143,7 +143,7 @@ with sample Rego policies.
 
 ### OPA native backend (`backend="opa"`)
 
-The native backend talks OPA's Data API (`POST /v1/data/<path>`) directly — no AuthZEN
+The native backend talks OPA's Data API (`POST /v1/data/<path>`) directly, with no AuthZEN
 gateway required. The same hardened transport (SSRF guard, TLS, bounded retries) used by
 the AuthZEN backend applies here.
 
@@ -159,7 +159,7 @@ scanner = AuthZENScanner(
 )
 ```
 
-For a local OPA instance (`http://localhost:8181`) set `allow_insecure_pdp=True` — local development only.
+For a local OPA instance (`http://localhost:8181`) set `allow_insecure_pdp=True` (local development only).
 
 `opa_decision_path` must match your Rego package and boolean rule (e.g. package
 `myorg.authz`, rule `allow` → path `myorg/authz/allow`). The default matches the example
@@ -179,5 +179,5 @@ local/CI set.
 OPA (via [`kanywst/opa-authzen`](https://github.com/kanywst/opa-authzen)), Cerbos, and
 Topaz also expose AuthZEN endpoints; any AuthZEN 1.0 PDP works. Resource and subject
 **type vocabularies differ** between PDPs (OpenFGA's `type:id` relations vs Cedar
-entities/actions vs OPA's free-form input) — adapt the `ToolCallMapper` to your PDP's
+entities/actions vs OPA's free-form input). Adapt the `ToolCallMapper` to your PDP's
 schema.

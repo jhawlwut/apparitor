@@ -27,14 +27,14 @@ bundles, Microsoft Agent Governance rails, natural-language policy authoring.
 - `class Scanner(ABC)`, `__init__(self, scanner_name: str, block_threshold: float = 1.0)`.
 - `@abstractmethod async def scan(self, message: Message, past_trace: Trace | None = None) -> ScanResult`.
   The sync `LlamaFirewall.scan()` wraps this in `asyncio.run`; `scan_async()` is native.
-- `Message`: `role: Role`, `content: str`, `tool_calls: list[dict] | None` — **not
+- `Message`: `role: Role`, `content: str`, `tool_calls: list[dict] | None`, **not
   normalised**. Only `AssistantMessage` carries `tool_calls`.
 - `ScanResult(decision: ScanDecision, reason: str, score: float, status: ScanStatus = SUCCESS)`.
 - `ScanDecision ∈ {ALLOW, HUMAN_IN_THE_LOOP_REQUIRED, BLOCK}`;
   `ScanStatus ∈ {SUCCESS, ERROR, SKIPPED}`.
 - **Registration:** prefer passing a configured instance into the role→scanner
   `Configuration` map (the `@register_llamafirewall_scanner` decorator instantiates
-  arg-less and can't carry our config). **Bind to the `ASSISTANT` role** — this is a
+  arg-less and can't carry our config). **Bind to the `ASSISTANT` role**: this is a
   *pre-execution* gate; binding to the tool-output role would authorize after the call
   already ran.
 
@@ -48,9 +48,9 @@ bundles, Microsoft Agent Governance rails, natural-language policy authoring.
 
 ## 3. Resolved design decisions
 
-### 3.1 LlamaFirewall dependency — hard, never shimmed
+### 3.1 LlamaFirewall dependency: hard, never shimmed
 Only `scanner.py` imports LlamaFirewall, and it imports the **real**
-`Scanner`/`ScanResult`/`ScanDecision`/`Message` types (no re-declared stub types — stub
+`Scanner`/`ScanResult`/`ScanDecision`/`Message` types (no re-declared stub types: stub
 enums would break `is`/`isinstance` identity when the LlamaFirewall runtime consumes our
 `ScanResult`). `llamafirewall` is an **optional extra** but is required for the scanner
 import path; importing `scanner.py` without it raises `MissingDependencyError`. Every
@@ -59,25 +59,25 @@ other module is LlamaFirewall-free and standalone-importable. Type-only referenc
 
 ### 3.2 Tool-call extraction is provider-aware
 `Message.tool_calls` shape is framework-specific:
-- OpenAI: `{"function": {"name", "arguments": "<JSON string>"}}` — `arguments` is a JSON
+- OpenAI: `{"function": {"name", "arguments": "<JSON string>"}}`; `arguments` is a JSON
   **string** (`json.loads` it).
 - Anthropic: `{"type": "tool_use", "name", "input": {…}}`.
 - LangChain: `{"name", "args": {…}}`.
 
 A pluggable `ToolCallAdapter` detects the shape and normalises to
 `NormalizedToolCall{name, arguments: dict, id}`. **Every** call in `tool_calls` is
-authorized (not just `[0]` — smuggling a malicious call beside a benign one must not
+authorized (not just `[0]`: smuggling a malicious call beside a benign one must not
 bypass). There is **no** regex-from-`content` path (model content is attacker-influenced).
 
-### 3.3 Mapping — one seam
+### 3.3 Mapping: one seam
 A single `ToolCallMapper.map(tool_call, request_context) -> EvaluationRequest | None`
 protocol (subject/resource/context shaping share the same request context, so three
 protocols would be over-factored). The default mapper:
-- **subject** — request-scoped, read from the `current_subject` `ContextVar` (the end
+- **subject**: request-scoped, read from the `current_subject` `ContextVar` (the end
   user the agent acts for), falling back to the configured static agent subject. **Never**
   derived from message content/arguments.
-- **action** — `config.action_name` (default `tool_call.execute`).
-- **resource** — `{type: "tool", id: <normalised tool name>}`. Default type is `tool`,
+- **action**: `config.action_name` (default `tool_call.execute`).
+- **resource**: `{type: "tool", id: <normalised tool name>}`. Default type is `tool`,
   **not** `mcp_tool` (tool calls at the LLM layer rarely carry MCP provenance). A
   non-default `MCPResourceMapper` keys `resource.id = "<server>/<tool>"` for genuine MCP
   deployments. Tool names are normalised (case/namespace) to prevent `Tool` vs `tool`
@@ -89,7 +89,7 @@ protocols would be over-factored). The default mapper:
 
 ### 3.4 Async-native, safe sync
 `scan()` is `await`-only end-to-end and uses only `httpx.AsyncClient`. No `asyncio.run`
-anywhere in our code (it raises inside an already-running loop — the common agent case).
+anywhere in our code (it raises inside an already-running loop, the common agent case).
 A synchronous client variant, if provided, uses a real `httpx.Client`; if a running loop
 is detected on a sync path, raise a clear error (never `nest_asyncio`). The scanner owns
 **one long-lived pooled** `AsyncClient` reused across calls, closed via `aclose()`.
@@ -98,10 +98,10 @@ is detected on a sync path, raise a clear error (never `nest_asyncio`). The scan
 `decision == true → ALLOW (score 0.0)`; `decision == false → BLOCK (score 1.0)`. A binary
 PDP makes `block_threshold` inert (documented). An optional `review_predicate` over the
 PDP response `context` may only **escalate** along the lattice `BLOCK > HUMAN > ALLOW`
-(implementation asserts output ≥ base decision — it can never downgrade a deny using
+(implementation asserts output ≥ base decision, so it can never downgrade a deny using
 PDP-supplied advisory fields).
 
-### 3.6 Errors → decision (security-critical) — **no global fail-open**
+### 3.6 Errors → decision (security-critical): **no global fail-open**
 `on_error ∈ {deny (default), human_review}`. There is no allow-on-failure option; an
 authorization gate that can be configured to fail open is not a gate. Resolution is
 per error class:
@@ -114,17 +114,17 @@ per error class:
 | Client `4xx` | 400/401/403/422 (our bug/misconfig) | **BLOCK, loudly** | no | `ERROR` |
 | Malformed `2xx` | missing/non-bool `decision` | `on_error` (BLOCK) | no | `ERROR` |
 
-A missing `decision` is an error — **never** a falsy allow. Any verdict produced via the
+A missing `decision` is an error, **never** a falsy allow. Any verdict produced via the
 error path sets `status = ERROR`, so "policy denied" is distinguishable from "PDP down".
 
 ### 3.7 Transport, retries, SSRF
 - Hand-rolled bounded retry (exponential backoff + jitter), **only** on `429`/`5xx`
-  (502/503/504) and transport errors — never `4xx`, never a valid deny. (httpx
+  (502/503/504) and transport errors, never `4xx`, never a valid deny. (httpx
   transport-level retries cover connection failures only, not `5xx`/`429`; no `tenacity`.)
 - Explicit `httpx.Timeout(connect, read, write, pool)`; retries live **within** the total
   `request_budget_s` (not additive).
-- **TLS `verify=True`** by default. `pdp_url` is operator config only — never derived from
-  a message — and must be HTTPS; private/RFC1918/link-local/`169.254.169.254` hosts are
+- **TLS `verify=True`** by default. `pdp_url` is operator config only (never derived from
+  a message) and must be HTTPS; private/RFC1918/link-local/`169.254.169.254` hosts are
   rejected unless `allow_insecure_pdp` is set (local-dev only). Otherwise an injected URL
   is full SSRF + bypass.
 - **Bring-your-own `httpx` client**: callers may pass a pre-configured `AsyncClient` to
@@ -136,7 +136,7 @@ One tool call → `/evaluation`; N > 1 → `/evaluations`. Default semantic **`e
 (retains per-tool decisions for audit). Aggregation: the message is `ALLOW` **iff every**
 entry is allowed; any deny **or any un-evaluated entry** → `BLOCK`. Map results to calls
 by position only under `execute_all`; tolerate short-circuited arrays under
-`deny_on_first_deny`. Authorization is point-in-time — bind the ALLOW to the exact
+`deny_on_first_deny`. Authorization is point-in-time: bind the ALLOW to the exact
 argument fingerprint that executes; if arguments mutate before execution, the ALLOW is
 void (TOCTOU).
 
@@ -145,7 +145,7 @@ When enabled: cache **ALLOW only**; short default TTL (`cache_ttl_s`, ~60s) with
 ceiling (`cache_max_ttl_s`, ~300s); any PDP-suggested TTL is clamped **down**. Key =
 SHA-256 of canonical, sorted, type-tagged JSON over the **full** tuple, including a hash
 of `resource.properties.arguments` (so `delete_file(/tmp/x)` cannot serve a cached ALLOW
-for `delete_file(/etc/passwd)`) — never string concatenation, never a "context subset".
+for `delete_file(/etc/passwd)`); never string concatenation, never a "context subset".
 **Never** cache error/timeout/HITL outcomes (would poison the cache). Provide a flush hook
 and the `cache_enabled=False` kill switch for incident response. Concurrency model and
 in-flight coalescing are pinned in [architecture.md](architecture.md).
@@ -164,7 +164,7 @@ cache-hit counter from day one.
 
 1. **No actionable call.** `tool_calls is None` (or empty) → nothing to authorize →
    `ScanStatus.SKIPPED` (decision `ALLOW`, the scanner abstains). `tool_calls` present but
-   a member is **unparseable** by every adapter → `BLOCK` (never `SKIPPED`) — an attacker
+   a member is **unparseable** by every adapter → `BLOCK` (never `SKIPPED`): an attacker
    malforming a call must not slip through.
 2. **`status` on error-path verdicts** → `ScanStatus.ERROR` (even when the verdict is a
    policy-shaped `BLOCK`).
@@ -179,7 +179,7 @@ cache-hit counter from day one.
 See [`config.py`](../src/apparitor/config.py). Secure defaults: `on_error=deny`,
 `verify_tls=True`, `allow_insecure_pdp=False`, `cache_enabled=False`,
 `request_budget_s=2.0`, `max_retries=2`. The batch semantic is not a `ScannerConfig`
-field — it lives on the wire model `EvaluationsOptions.evaluations_semantic` (default
+field; it lives on the wire model `EvaluationsOptions.evaluations_semantic` (default
 `execute_all`).
 
 ## 6. Acceptance criteria
