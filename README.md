@@ -14,6 +14,30 @@ invocation) is checked against the policy engine you already trust (OpenFGA, Ced
 agent *allowed* to do this? Vendor-neutral, built on the AuthZEN 1.0 interop standard,
 Apache-2.0.
 
+## TL;DR
+
+AI agents act through tools, MCP servers, and other agents, and they bypass the
+authorization you already run. apparitor puts that authorization back in front of every
+agent action. You write no new policy and add no new enforcement layer.
+
+1. **Plug into the agent controls you already run.** apparitor ships an adapter for each,
+   so the check runs inside your existing layer:
+   - **Meta LlamaFirewall**: authorization scanner
+   - **NVIDIA NeMo Guardrails**: authorization rail
+   - **FastMCP**: MCP server middleware (subject taken from the validated OAuth token)
+   - **A2A**: agent-to-agent executor
+
+2. **Decide with the Policy-as-Code engine you already trust.** One integration speaks the
+   **AuthZEN 1.0** interop standard, so the decision comes from your engine with no policy
+   rewrite: **OPA/Rego**, **Cedar**, **OpenFGA** (experimental), or any AuthZEN PDP such as
+   Cerbos, Topaz, or Amazon Verified Permissions. OPA and Cedar also run as native
+   in-process backends. A direct OpenFGA backend and managed Amazon Verified Permissions
+   are next.
+
+One engine returns one fail-closed verdict (`allow`, `block`, or `human-review`) at all
+four enforcement points. It answers the question content scanners skip: is this agent
+allowed to do this?
+
 ## Get started
 
 apparitor is on PyPI:
