@@ -98,7 +98,7 @@ standard, so the same wiring reaches the engines you already author policy in:
 Rego**, with no policy rewrite. OPA and Cedar also have native backends that skip the
 AuthZEN hop.
 
-> **Status: `0.1.0`, beta.** **Shipping today:** all four enforcement points above and
+> **Status: `0.1.1`, beta.** **Shipping today:** all four enforcement points above and
 > the AuthZEN evaluation pipeline, working end-to-end against any AuthZEN 1.0 PDP (OpenFGA,
 > Cedar, OPA, Cerbos, Topaz) plus native OPA and in-process Cedar backends, with ≥90% test
 > coverage (CI-enforced) on the adapter-free core (see [`CHANGELOG`](CHANGELOG.md)).
@@ -112,17 +112,17 @@ AuthZEN hop.
 
 ## Installation
 
+apparitor is not on PyPI yet; install from source, pinned to a release tag:
+
 ```bash
-pip install apparitor                       # AuthZEN client + models, no firewall dependency
-pip install "apparitor[llamafirewall]"      # LlamaFirewall scanner (pulls torch / ML stack)
-pip install "apparitor[nemo]"              # NeMo Guardrails rail
-pip install "apparitor[fastmcp]"           # FastMCP server middleware
-pip install "apparitor[a2a]"               # A2A agent-executor adapter
-pip install "apparitor[cedar]"             # in-process Cedar backend (cedarpy, no server)
+pip install "apparitor @ git+https://github.com/jhawlwut/apparitor@v0.1.1"
 ```
 
-> **Note:** `[llamafirewall]` pulls LlamaFirewall's ML dependencies (torch, PromptGuard).
-> The bare install and all other extras work without it.
+Each enforcement point and the in-process Cedar backend are optional extras
+(`[llamafirewall]`, `[nemo]`, `[fastmcp]`, `[a2a]`, `[cedar]`). `[llamafirewall]` pulls a
+torch / ML stack; the bare install and every other extra do not. See
+[docs/setup.md](docs/setup.md#installation) for the full matrix and the per-extra install
+commands.
 
 ## Quickstart
 
@@ -148,175 +148,81 @@ result = await firewall.scan_async(assistant_message)   # ALLOW / BLOCK / HUMAN_
 Per request, supply the real end user the agent acts for (recommended over a static
 `agent_id`). See [Identity: who the agent acts for](#identity-who-the-agent-acts-for).
 
-**As a NeMo Guardrails rail,** the identical check registers as a custom action
-(`pip install "apparitor[nemo]"`). The host passes the agent's proposed tool calls into
-the flow as `$tool_calls`; the action returns an `allowed` boolean that fails closed
-under NeMo's mapping, and the rail refuses denied calls. The full verdict is surfaced in
-the rails context for host-built escalation; see the `apparitor.nemo` module docs for
-the flow wiring:
+The same `AuthorizationEngine` runs behind the other three enforcement points; only the
+boundary and the identity source differ:
 
-```python
-from nemoguardrails import LLMRails, RailsConfig
-from apparitor.nemo import NeMoAuthorizationRails
+- **NeMo Guardrails rail** — `pip install "apparitor[nemo]"`, `NeMoAuthorizationRails`.
+  Registers as a custom action; the rail refuses denied tool calls, fail-closed under
+  NeMo's mapping. Exercised in [`examples/three-peps/`](examples/three-peps/).
+- **FastMCP server middleware** — `pip install "apparitor[fastmcp]"`,
+  `FastMCPAuthorizationMiddleware`. Gates `tools/call`, `resources/read`, and `prompts/get`
+  server-side before the tool runs; the subject is the *validated* OAuth `sub`, never a
+  host assertion. Register it **after** your auth middleware. Worked proxy example in
+  [`examples/gateway/`](examples/gateway/).
+- **A2A agent executor** — `pip install "apparitor[a2a]"`, `A2AAuthorizationExecutor`.
+  Gates every agent-to-agent `agent.invoke`; the subject is the server's authenticated
+  peer.
 
-rails = LLMRails(RailsConfig.from_path("config"))
-NeMoAuthorizationRails(pdp_url="https://pdp.internal").register(rails)
-```
-
-At the **MCP boundary,** the same engine runs server-side, before any tool executes.
-The subject is the *validated* OAuth identity of the caller (the token's `sub`),
-not a host-asserted value (`pip install "apparitor[fastmcp]"`):
-
-```python
-from fastmcp import FastMCP
-from apparitor.fastmcp import FastMCPAuthorizationMiddleware
-
-server = FastMCP("files", auth=my_token_verifier)   # auth supplies the validated identity
-server.add_middleware(FastMCPAuthorizationMiddleware(pdp_url="https://pdp.internal"))
-```
-
-Register the middleware **after** any custom auth middleware (so the token is populated).
-It gates `tools/call`, `resources/read` (action `resource.read`), and `prompts/get`
-(action `prompt.get`) by default (`gate_resources`/`gate_prompts` opt a hook out), and
-can additionally hide unauthorized tools from `tools/list` with `filter_listings=True`
-(advisory; `tools/call` remains the enforcement invariant). Client-credentials tokens can
-be authorized as distinct `workload` subjects via `allow_workload_subject=True`. Under
-server composition pin `server_label` for stable policy keys. FastMCP never tears
-middleware down, so call `await middleware.aclose()` on shutdown to release the PDP client.
-For a vendor MCP server you cannot modify, front it with a thin proxy you own and put the
-middleware on the proxy. See [`examples/gateway/`](examples/gateway/).
-
-At the **A2A boundary,** the same engine guards agent-to-agent invocations. The subject
-is the authenticated peer the A2A server established, and the request's `tenant` is
-forwarded to policies as a claim to cross-check (`pip install "apparitor[a2a]"`):
-
-```python
-from apparitor.a2a import A2AAuthorizationExecutor
-
-guarded = A2AAuthorizationExecutor(
-    my_executor, pdp_url="https://pdp.internal", agent_label="travel-agent"
-)
-# hand `guarded` to DefaultRequestHandler in your executor's place
-```
-
-The AuthZEN client and models are **adapter-free** and usable on their own:
-
-```python
-from apparitor.models import EvaluationRequest   # no firewall dependency needed
-```
+Each adapter has more options (list filtering, dual-principal boundaries, per-hook
+opt-outs) documented in its module docstring; see [docs/setup.md](docs/setup.md) for
+per-engine wiring. The AuthZEN client and models are **adapter-free** and usable on their
+own — `from apparitor.models import EvaluationRequest` needs no firewall dependency.
 
 ## Identity: who the agent acts for
 
 Every decision needs a **subject:** the principal your policy is written against. apparitor
 never infers it from model or tool output (that would be a [confused
 deputy](https://en.wikipedia.org/wiki/Confused_deputy_problem)); the **host** supplies it,
-request-scoped, because the firewall layer sees messages, not an authenticated principal.
-There is a maturity ladder of three levels, and the same seam feeds every mapper-driven
-adapter (the LlamaFirewall scanner, the NeMo rail, the FastMCP middleware). At the MCP
-boundary the middleware fills this seam itself from the validated OAuth token; see the
-note below.
+request-scoped. There is a maturity ladder of three levels:
 
-**Level 0, a static agent identity.** Set `agent_id`; every call is authorized as that
-agent. Enough for policies that don't depend on the end user, such as *"no agent may call a
-destructive tool"*:
+- **Level 0 — static agent identity.** Set `agent_id`; every call is authorized as that
+  agent. Enough for policies that don't depend on the end user (*"no agent may call a
+  destructive tool"*).
+- **Level 1 — the real end user, per request (recommended).** Bind the authenticated user
+  for the agent run with `subject_scope(Subject(...))`; it resets on exit, so a subject
+  cannot leak to a later request that reuses the same task/event loop.
+- **Level 2 — the agentic permission boundary (user ∧ agent).** `DualPrincipalMapper`
+  evaluates the user's grant *and* the agent's own boundary, proceeding only when both
+  allow, so a jailbroken agent can never borrow its user's rights.
 
-```python
-scanner = AuthZENScanner(config=ScannerConfig(pdp_url="https://pdp.internal", agent_id="travel-bot"))
-```
-
-**Level 1, the real end user, per request (recommended).** Where your host already
-authenticated the user, bind it for the agent run with `subject_scope`. It resets the value
-on exit, so a subject can never leak to a later request that reuses the same task/event loop:
-
-```python
-from apparitor import Subject, subject_scope
-
-with subject_scope(Subject(type="user", id="alice@acme.com")):
-    result = await firewall.scan_async(assistant_message)
-```
-
-**Level 2, the agentic permission boundary (user ∧ agent).** Use Level 1 by default;
-add Level 2 when the agent's privileges must be narrower than its user's. The
-`DualPrincipalMapper` evaluates **two** decisions per call (the end user's grant *and*
-the agent's own boundary), and the call proceeds only when both allow. That is the
-evaluation semantics of a permission boundary: at every mapper-gated call, the agent can
-never exercise a permission its boundary denies, even when the human holds it. The A2A
-executor and the FastMCP `resources/read` / `prompts/get` paths use `boundary_subject`
-instead (the mapper seam does not reach them); for FastMCP tools and listing use
-`mapper=DualPrincipalMapper(config)`. A full deployment sets both:
-
-```python
-from apparitor import DualPrincipalMapper, ScannerConfig
-
-config = ScannerConfig(pdp_url="https://pdp.internal", agent_id="travel-bot")
-scanner = AuthZENScanner(config=config, mapper=DualPrincipalMapper(config))
-# per request: subject_scope(user) supplies the user leg; "travel-bot" is the boundary
-```
-
-Unlike an in-policy `forbid` (the [three-peps demo](examples/three-peps/)'s deny-override,
-which works when one PDP holds all your policy), the dual mapper makes the boundary a
-**separate, separately-audited decision** that works across engines and policy stores.
-Cost: two decisions per call, sent as one batched PDP round trip (the native OPA backend
-fans a batch out as one Data API query per leg). When `boundary_subject` is used instead
-of the mapper (A2A `agent.invoke`, FastMCP `resources/read`, `prompts/get`), that is two
-decisions per gated invoke / resources-read / prompts-get, sent as one batched PDP round
-trip (and the ALLOW cache is not consulted).
-
-With neither a request-context `subject` nor `current_subject` set and no `agent_id`, the
-scan fails **closed**. Request-scoped attributes (`user_id`, `conversation_id`, …) can ride
-along as AuthZEN `context` for policy conditions. See
-[docs/setup.md](docs/setup.md#identity-resolving-the-subject) for the full resolution order
-and a request-context example.
-
-> Enforcement points that carry a *validated* identity of their own populate this same
-> subject seam: the FastMCP middleware reads the verified OAuth token's `sub` claim and
-> it outranks any host-asserted subject. A token is never silently downgraded. A token
-> without a usable claim refuses the call, and the static `agent_id` fallback requires an
-> explicit `allow_static_subject=True` opt-in (local/stdio only).
+With no resolvable subject the scan fails **closed**. Enforcement points that carry a
+*validated* identity of their own populate the same seam: the FastMCP middleware reads the
+verified OAuth token's `sub` and it outranks any host-asserted subject. See
+[docs/setup.md](docs/setup.md#identity-resolving-the-subject) for the full resolution
+order, the three levels with code, and dual-principal wiring.
 
 ## Fail-closed by default
 
-Every path that cannot produce a clean ALLOW refuses: an unreachable or timed-out PDP,
-a malformed response (strict validation, where a missing or non-boolean `decision` is an
-error, never a coerced allow), a missing subject, an unparseable tool call. There is no
-fail-open option: a PDP failure resolves per `on_error` to `deny` (the default) or
-`human_review`. PDP URLs must be HTTPS and pass an SSRF guard, with TLS verified and
-redirects never followed. The only opt-out is the explicit `allow_insecure_pdp` flag,
-intended for local development; retries are bounded within a per-request wall-clock
-budget. A
-`review_predicate` over the PDP's response context can escalate a decision to
-`HUMAN_IN_THE_LOOP`, never downgrade one (advisory response context exists only on the
-AuthZEN backend; the native OPA and Cedar backends return plain booleans).
-
-Decision caching is **off by default**. When enabled it caches ALLOW decisions only,
-keyed by a digest of the full request tuple (arguments included), with a short TTL that
-is clamped, never extended. See [docs/requirements.md](docs/requirements.md) for the
-full failure-handling and caching design.
+Every path that cannot produce a clean ALLOW refuses: an unreachable or timed-out PDP, a
+malformed response (a missing or non-boolean `decision` is an error, never a coerced
+allow), a missing subject, an unparseable tool call. There is no fail-open option; a PDP
+failure resolves per `on_error` to `deny` (default) or `human_review`. PDP URLs must be
+HTTPS and pass an SSRF guard, TLS verified and redirects never followed (the only opt-out
+is the explicit `allow_insecure_pdp` flag, for local dev). A `review_predicate` can only
+*escalate* a decision to `HUMAN_IN_THE_LOOP`, never downgrade one. Decision caching is off
+by default and, when enabled, caches ALLOW only, keyed by a digest of the full request
+tuple, with a clamped TTL. See [docs/requirements.md](docs/requirements.md) (§3.6–3.9) for
+the full failure-handling and caching design.
 
 ## Observability
 
 Every decision is timed and counted. The scanner (and the standalone `AuthorizationEngine`)
-exposes a `metrics` sink, by default an in-process `InMemoryMetrics` with a latency
-histogram and decision/cache counters:
+exposes a `metrics` sink — by default an in-process `InMemoryMetrics` with a latency
+histogram and decision/cache counters; pass your own `MetricsSink` to forward to
+Prometheus/OpenTelemetry, or `NoopMetrics()` to disable.
 
 ```python
-m = scanner.metrics                         # InMemoryMetrics by default
-m.latency_histogram()                       # [(le_seconds, cumulative_count), …, (+Inf, n)]
-m.decisions                                 # {("allow", "success"): 12, ("block", "error"): 1}
-m.cache_hits, m.cache_misses                # cache effectiveness (single-call decisions)
+m = scanner.metrics
+m.latency_histogram()       # [(le_seconds, cumulative_count), …, (+Inf, n)]
+m.decisions                 # {("allow", "success"): 12, ("block", "error"): 1}
 ```
 
-To export, pass your own `MetricsSink` (forward to Prometheus/OpenTelemetry) or
-`NoopMetrics()` to disable. The default `InMemoryMetrics` is lock-free and meant for
-single-event-loop use; a long-lived server scraping it from another thread (or a sink shared
-across threads) must provide its own synchronisation by passing a thread-safe `MetricsSink`.
-Each decision also emits one structured audit log line (verdict,
-status, subject id, correlation id, resource ids, and an argument *fingerprint*). Raw tool
-arguments and tokens are never logged; arguments are fingerprinted. The subject id is the
-decision principal (with the FastMCP middleware that is the OAuth `sub`, which may be an
-email), so treat the `apparitor` logger as sensitive and route it accordingly. The log
-format is a documented stability contract from `0.1.0`. See
-[docs/audit-log.md](docs/audit-log.md).
+Each decision also emits one structured audit line (verdict, status, subject id,
+correlation id, resource ids, argument *fingerprint*); raw arguments and tokens are never
+logged. The subject id is the decision principal (the OAuth `sub` under FastMCP, which may
+be an email), so treat the `apparitor` logger as sensitive. The log format is a stability
+contract from `0.1.0`. See [docs/audit-log.md](docs/audit-log.md) and
+[docs/requirements.md](docs/requirements.md) (§3.10).
 
 ## What apparitor connects
 
