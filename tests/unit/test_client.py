@@ -279,6 +279,17 @@ def test_ssrf_guard_accepts_public_ip_literal() -> None:
     validate_pdp_url("https://8.8.8.8/access/v1/evaluation", allow_insecure=False)
 
 
+def test_ssrf_guard_rejects_unparseable_url() -> None:
+    # A string urlparse cannot split (e.g. an unterminated IPv6 literal) must surface as the
+    # guard's typed AuthZENConfigError, not a raw ValueError leaking out — for both flag
+    # states, since urlparse runs before the allow_insecure short-circuit. Regression for a
+    # finding surfaced by the fuzz harness (fuzz/fuzz_url_guard.py).
+    for bad in ("https://[", "https://[::1", "https://exa[mple"):
+        for insecure in (False, True):
+            with pytest.raises(AuthZENConfigError):
+                validate_pdp_url(bad, allow_insecure=insecure)
+
+
 @pytest.mark.asyncio
 async def test_batch_nested_duplicate_key_in_evaluations_entry_is_malformed(
     make_config, noop_sleep, respx_mock

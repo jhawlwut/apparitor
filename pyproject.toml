@@ -140,6 +140,11 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+# Atheris harnesses must import the modules they fuzz *inside*
+# `atheris.instrument_imports()` for coverage, which trips E402 (import not at top).
+"fuzz/*" = ["E402"]
+
 [tool.mypy]
 python_version = "3.10"
 strict = true
