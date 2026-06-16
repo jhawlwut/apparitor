@@ -70,7 +70,7 @@ from .models import (
     Subject,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 if TYPE_CHECKING:
     # For type-checkers only; these runtime exports are lazy (see __getattr__ below) because
