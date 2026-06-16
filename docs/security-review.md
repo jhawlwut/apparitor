@@ -17,7 +17,7 @@ and the changelog.
 
 **Attacker-focused slices:**
 
-1. Core evaluation engine + AuthZEN/OPA transport (`engine.py`, `client.py`, `opa.py`).
+1. Core evaluation engine + AuthZEN/OPA transport (`engine.py`, `client.py`, `backends.py`).
 2. Mapping layer + all four enforcement adapters (`mapping.py`, `scanner.py`, `nemo.py`,
    `fastmcp.py`, `a2a.py`).
 3. Configuration, operational security, and supply chain (`config.py`, `cedar.py`,
@@ -214,7 +214,7 @@ ALLOW. SKIP and ALLOW are distinct paths; SKIP abstains, it does not grant.
 Re-run this review when any of the following change:
 
 - The threat model (`docs/requirements.md` §§3.5–3.10) or `SECURITY.md`.
-- The AuthZEN transport or OPA/Cedar backend response parsing (`client.py`, `opa.py`,
+- The AuthZEN transport or OPA/Cedar backend response parsing (`client.py`, `backends.py`,
   `cedar.py`).
 - The mapping layer or any enforcement adapter (`mapping.py`, `scanner.py`, `nemo.py`,
   `fastmcp.py`, `a2a.py`).
