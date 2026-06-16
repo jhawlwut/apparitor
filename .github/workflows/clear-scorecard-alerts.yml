@@ -1,43 +1,56 @@
-# One-shot workflow: uploads an empty Scorecard SARIF to auto-close the orphaned
-# Scorecard alerts left behind when scorecard.yml was deleted.  Trigger once via
-# Actions → "Clear Scorecard alerts" → Run workflow; the upload auto-closes all
-# open alerts whose tool name matches "Scorecard".  Safe to run more than once.
+# One-shot maintenance workflow: dismisses the orphaned OpenSSF Scorecard code-scanning
+# alerts left behind when the Scorecard workflow was removed. Scorecard no longer runs, so
+# its alerts can never be auto-closed by a fresh (empty) analysis — the category/tool tuple
+# of a manual upload does not match the original uploads. Instead this dismisses them
+# directly via the code-scanning REST API. Trigger via Actions -> "Clear Scorecard alerts"
+# -> Run workflow. Safe to re-run: only OPEN alerts whose tool name is Scorecard are
+# touched; CodeQL (or any other tool's) alerts are left alone.
 name: Clear Scorecard alerts
 
 on:
   workflow_dispatch:
 
 permissions:
-  contents: read
   security-events: write
 
 jobs:
   clear:
     runs-on: ubuntu-latest
     steps:
-      - name: Write empty Scorecard SARIF
+      - name: Dismiss open Scorecard code-scanning alerts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
-          cat > scorecard-empty.sarif <<'EOF'
-          {
-            "version": "2.1.0",
-            "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
-            "runs": [
-              {
-                "tool": {
-                  "driver": {
-                    "name": "Scorecard",
-                    "informationUri": "https://github.com/ossf/scorecard",
-                    "semanticVersion": "v5.3.0"
-                  }
-                },
-                "results": []
-              }
-            ]
-          }
-          EOF
+          set -euo pipefail
+          api="https://api.github.com/repos/${REPO}/code-scanning/alerts"
+          auth=(-H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28")
 
-      - name: Upload empty SARIF (closes all Scorecard alerts)
-        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
-        with:
-          sarif_file: scorecard-empty.sarif
-          category: scorecard
+          # Diagnostic: surface the tool names of currently-open alerts so a zero-dismissal
+          # run is self-explaining (e.g. if the tool name is not "Scorecard" as assumed).
+          echo "Tool names among open alerts:"
+          curl -fsS "${auth[@]}" "${api}?state=open&per_page=100" \
+            | jq -r '[.[].tool.name] | unique | .[]' || true
+
+          # Dismissal reason must be one of GitHub's accepted values.
+          cat > payload.json <<'JSON'
+          {"state":"dismissed","dismissed_reason":"won't fix","dismissed_comment":"OpenSSF Scorecard workflow was removed; dismissing orphaned supply-chain alerts."}
+          JSON
+
+          total=0
+          # Re-fetch each pass: dismissed alerts drop out of state=open, so the set of
+          # Scorecard alerts shrinks to empty and the loop terminates (no infinite loop —
+          # non-Scorecard alerts are filtered out and never re-counted).
+          while :; do
+            resp="$(curl -fsS "${auth[@]}" "${api}?state=open&per_page=100")"
+            nums="$(printf '%s' "$resp" | jq -r '.[] | select(.tool.name | test("scorecard"; "i")) | .number')"
+            [ -z "$nums" ] && break
+            for num in $nums; do
+              curl -fsS -X PATCH "${auth[@]}" "${api}/${num}" -d @payload.json >/dev/null
+              echo "Dismissed Scorecard alert #${num}"
+              total=$((total + 1))
+            done
+          done
+          echo "Total Scorecard alerts dismissed: ${total}"
