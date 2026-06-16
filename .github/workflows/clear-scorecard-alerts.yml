@@ -3,7 +3,7 @@
 # its alerts can never be auto-closed by a fresh (empty) analysis — the category/tool tuple
 # of a manual upload does not match the original uploads. Instead this dismisses them
 # directly via the code-scanning REST API. Trigger via Actions -> "Clear Scorecard alerts"
-# -> Run workflow. Safe to re-run: only OPEN alerts whose tool name is Scorecard are
+# -> Run workflow. Safe to re-run: only OPEN alerts whose tool name is exactly Scorecard are
 # touched; CodeQL (or any other tool's) alerts are left alone.
 name: Clear Scorecard alerts
 
@@ -39,18 +39,26 @@ jobs:
           {"state":"dismissed","dismissed_reason":"won't fix","dismissed_comment":"OpenSSF Scorecard workflow was removed; dismissing orphaned supply-chain alerts."}
           JSON
 
-          total=0
-          # Re-fetch each pass: dismissed alerts drop out of state=open, so the set of
-          # Scorecard alerts shrinks to empty and the loop terminates (no infinite loop —
-          # non-Scorecard alerts are filtered out and never re-counted).
+          # Walk every page of open alerts and collect the exact-Scorecard alert numbers
+          # first. The match is exact (case-insensitive) — a tool merely *containing*
+          # "scorecard" (e.g. "scorecard-wrapper") is ignored. Collecting all numbers before
+          # dismissing any means the PATCHes below are unaffected by pagination shifting as
+          # alerts move out of the open set.
+          nums=""
+          page=1
           while :; do
-            resp="$(curl -fsS "${auth[@]}" "${api}?state=open&per_page=100")"
-            nums="$(printf '%s' "$resp" | jq -r '.[] | select(.tool.name | test("scorecard"; "i")) | .number')"
-            [ -z "$nums" ] && break
-            for num in $nums; do
-              curl -fsS -X PATCH "${auth[@]}" "${api}/${num}" -d @payload.json >/dev/null
-              echo "Dismissed Scorecard alert #${num}"
-              total=$((total + 1))
-            done
+            resp="$(curl -fsS "${auth[@]}" "${api}?state=open&per_page=100&page=${page}")"
+            [ "$(printf '%s' "$resp" | jq 'length')" -eq 0 ] && break
+            page_nums="$(printf '%s' "$resp" \
+              | jq -r '.[] | select((.tool.name // "" | ascii_downcase) == "scorecard") | .number')"
+            [ -n "$page_nums" ] && nums="${nums}${page_nums}"$'\n'
+            page=$((page + 1))
+          done
+
+          total=0
+          for num in $nums; do
+            curl -fsS -X PATCH "${auth[@]}" "${api}/${num}" -d @payload.json >/dev/null
+            echo "Dismissed Scorecard alert #${num}"
+            total=$((total + 1))
           done
           echo "Total Scorecard alerts dismissed: ${total}"
