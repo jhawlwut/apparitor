@@ -1,7 +1,6 @@
 # apparitor
 
 [![CI](https://github.com/jhawlwut/apparitor/actions/workflows/ci.yml/badge.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/ci.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/jhawlwut/apparitor/badge)](https://scorecard.dev/viewer/?uri=github.com/jhawlwut/apparitor)
 [![CodeQL](https://github.com/jhawlwut/apparitor/actions/workflows/codeql.yml/badge.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/codeql.yml)
 [![pip-audit](https://github.com/jhawlwut/apparitor/actions/workflows/pip-audit.yml/badge.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/pip-audit.yml)
 [![Coverage](https://img.shields.io/badge/core%20coverage-%E2%89%A590%25-brightgreen.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/ci.yml)
