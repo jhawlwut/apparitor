@@ -31,10 +31,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
       - name: Resolve the runtime dependency tree
         run: |
-          python -m pip install --upgrade pip
-          pip install .
+          uv pip install --system .
           # Audits the core runtime deps only — the optional `[llamafirewall]` extra (a heavy
           # ML stack) is not installed here, so its CVEs are out of scope for this fast gate.
           # `pip freeze` also omits pip/setuptools/wheel (CI build tooling, not shipped deps),

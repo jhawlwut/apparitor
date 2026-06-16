@@ -1,0 +1,43 @@
+# One-shot workflow: uploads an empty Scorecard SARIF to auto-close the orphaned
+# Scorecard alerts left behind when scorecard.yml was deleted.  Trigger once via
+# Actions → "Clear Scorecard alerts" → Run workflow; the upload auto-closes all
+# open alerts whose tool name matches "Scorecard".  Safe to run more than once.
+name: Clear Scorecard alerts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  clear:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write empty Scorecard SARIF
+        run: |
+          cat > scorecard-empty.sarif <<'EOF'
+          {
+            "version": "2.1.0",
+            "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+            "runs": [
+              {
+                "tool": {
+                  "driver": {
+                    "name": "Scorecard",
+                    "informationUri": "https://github.com/ossf/scorecard",
+                    "semanticVersion": "v5.3.0"
+                  }
+                },
+                "results": []
+              }
+            ]
+          }
+          EOF
+
+      - name: Upload empty SARIF (closes all Scorecard alerts)
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: scorecard-empty.sarif
+          category: scorecard
