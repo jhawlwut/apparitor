@@ -61,7 +61,13 @@ def validate_pdp_url(url: str, *, allow_insecure: bool) -> None:
     network call and a TOCTOU window); operators should pair this with network egress
     controls. ``allow_insecure`` disables the guard for local development.
     """
-    parsed = urlparse(url)
+    try:
+        parsed = urlparse(url)
+    except ValueError as exc:
+        # A string urlparse cannot even split (e.g. a malformed IPv6 literal like
+        # "https://[") is not a usable PDP URL: reject it as a config error rather than
+        # letting a raw ValueError escape the guard.
+        raise AuthZENConfigError(f"pdp_url is not a parseable URL: {exc}") from exc
     if allow_insecure:
         return
     if parsed.scheme != "https":
