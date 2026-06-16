@@ -100,15 +100,25 @@ jobs:
           # Idempotent: attach to a release created from the UI, or create one if the tag was
           # pushed on its own. --clobber replaces a prior SBOM on a re-run.
           #
-          # Immutable releases reject asset changes after publish (HTTP 422). When the release
-          # already exists and is immutable, treat the upload as non-fatal: the SBOM stays
-          # available as the `sbom` workflow artifact and the release pipeline still succeeds.
-          # A release the workflow creates itself (tag pushed without a pre-created release)
-          # gets the SBOM at creation, before immutability locks it.
+          # Immutable releases reject asset changes after publish (HTTP 422). Treat only that
+          # failure as non-fatal: the SBOM stays available as the `sbom` workflow artifact and
+          # the release pipeline still succeeds. Any other upload error (network, permissions,
+          # missing asset) still fails the job. A release the workflow creates itself (tag
+          # pushed without a pre-created release) gets the SBOM at creation, before immutability
+          # locks it.
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            if ! gh release upload "$tag" "$asset" --clobber --repo "$GITHUB_REPOSITORY"; then
-              echo "::warning::Could not attach the SBOM to release $tag (likely an immutable release). The SBOM remains available as the 'sbom' workflow artifact. To attach it automatically, push the tag without pre-creating the release so this workflow creates the release with the SBOM."
+            upload_err="$(mktemp)"
+            if ! gh release upload "$tag" "$asset" --clobber --repo "$GITHUB_REPOSITORY" 2>"$upload_err"; then
+              if grep -qiE 'immutable|HTTP 422|Validation Failed' "$upload_err"; then
+                echo "::warning::Could not attach the SBOM to release $tag because the release is immutable. The SBOM remains available as the 'sbom' workflow artifact. To attach it automatically, push the tag without pre-creating the release so this workflow creates the release with the SBOM."
+              else
+                cat "$upload_err" >&2
+                rm -f "$upload_err"
+                echo "::error::Failed to attach the SBOM to release $tag for a reason unrelated to release immutability."
+                exit 1
+              fi
             fi
+            rm -f "$upload_err"
           else
             gh release create "$tag" "$asset" --generate-notes --repo "$GITHUB_REPOSITORY"
           fi
