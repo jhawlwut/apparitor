@@ -14,6 +14,17 @@ invocation) is checked against the policy engine you already trust (OpenFGA, Ced
 agent *allowed* to do this? Vendor-neutral, built on the AuthZEN 1.0 interop standard,
 Apache-2.0.
 
+## Get started
+
+apparitor is on PyPI:
+
+```bash
+pip install apparitor
+```
+
+Then wire it up with the [Quickstart](#quickstart). Each enforcement point is an optional
+extra; see [Installation](#installation) for the full matrix.
+
 ## The gap
 
 Every safety layer in your stack inspects the *content* of an agent's action: is the
@@ -113,10 +124,10 @@ AuthZEN hop.
 
 ## Installation
 
-apparitor is not on PyPI yet; install from source, pinned to a release tag:
+Install from PyPI:
 
 ```bash
-pip install "apparitor @ git+https://github.com/jhawlwut/apparitor@v0.1.1"
+pip install apparitor
 ```
 
 Each enforcement point and the in-process Cedar backend are optional extras
@@ -256,7 +267,7 @@ config (`backend="opa"` / `backend="cedar"`):
 - [Setup: connecting to a policy engine](docs/setup.md)
 - [EU AI Act / CADA compliance reference](docs/eu-ai-act.md)
 - [Roadmap](ROADMAP.md)
-- [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md) · [Releasing](RELEASING.md) · [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 ## License
 

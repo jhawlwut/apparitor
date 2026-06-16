@@ -11,13 +11,12 @@ Status legend: ✅ done · 🔜 next · 📋 planned.
 
 ## At a glance
 
-- **Shipped, `0.1.1` (tagged, source-only):** the core evaluation pipeline, all four
+- **Shipped, `0.1.1` (on PyPI):** the core evaluation pipeline, all four
   enforcement points (LlamaFirewall, NeMo, FastMCP, A2A), three policy-engine backends
   (AuthZEN, native OPA, native Cedar), dual-principal (user ∧ agent) evaluation,
-  conformance, and the internal adversarial security review. `0.1.0` and `0.1.1` are tagged
-  GitHub releases (install from source); the **PyPI publish** (OIDC trusted publishing,
-  SBOM), the documentation site, and the Amazon Verified Permissions cloud example are
-  still outstanding.
+  conformance, and the internal adversarial security review. Published via OIDC trusted
+  publishing — `pip install apparitor`. The documentation site and the Amazon Verified
+  Permissions cloud example are still outstanding.
 - **Next:** a direct **OpenFGA** backend (its own Check API) and a managed **Amazon Verified
   Permissions** backend (boto3), both on the existing pluggable decision-backend seam.
 - **Later (adoption-gated):** an independent third-party security review, plus the deferred
@@ -63,7 +62,7 @@ The milestones below give the detail.
 
 **Remaining:** the **Amazon Verified Permissions** (managed Cedar) cloud example.
 
-## 🔜 M4: Hardening & first release (tagged; PyPI publish pending)
+## ✅ M4: Hardening & first release (0.1.1 published to PyPI)
 
 - ✅ **Internal adversarial security review** ([`docs/security-review.md`](docs/security-review.md)):
   three attacker-focused slices (core engine + transport; mapping layer + four enforcement
@@ -81,9 +80,8 @@ The milestones below give the detail.
 - ✅ Audit-log schema frozen as a stability contract (`docs/audit-log.md`): logger,
   levels, C1/C2/C3 field grammar, parsing guidance, stability policy, pinned by
   `tests/unit/test_log_contract.py`.
-- 🔜 PyPI publish of the `0.1.x` line via OIDC trusted publishing; SHA-pinned CI actions;
-  SBOM / dependency audit. The `0.1.0` and `0.1.1` tags are cut; the PyPI upload is the
-  remaining step.
+- ✅ PyPI publish of the `0.1.x` line via OIDC trusted publishing; SHA-pinned CI actions;
+  SBOM / dependency audit. `0.1.1` is live on PyPI (`pip install apparitor`).
 - ✅ **EU AI Act / CADA compliance reference** ([`docs/eu-ai-act.md`](docs/eu-ai-act.md)):
   field-by-field mapping of the decision log to Article 12 categories, the Article 14
   human-oversight mechanism (`HUMAN_IN_THE_LOOP_REQUIRED`), and the deployer obligations
@@ -91,8 +89,8 @@ The milestones below give the detail.
   library's scope. High-risk obligations apply from **2 August 2026**.
 
 **Acceptance:** the `0.1.x` line published to PyPI, green release pipeline, no open P0/P1
-findings in the documented internal review. (The `0.1.0` and `0.1.1` tags and the clean
-internal review are done; the PyPI publish is the remaining gate.) An independent
+findings in the documented internal review. (Met: `0.1.1` is on PyPI via the
+trusted-publishing pipeline, with the clean internal review done.) An independent
 third-party audit is a post-adoption goal, not a release blocker.
 
 **Project status & resourcing:** this is a solo-maintained open-source project, so cadence

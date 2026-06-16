@@ -15,16 +15,15 @@ behind a gateway.
 
 ## Installation
 
-apparitor is not published to PyPI yet — install from source, pinned to a release tag, and
-add the extra(s) your enforcement point and backend need:
+Install from PyPI, adding the extra(s) your enforcement point and backend need:
 
 ```bash
-pip install "apparitor @ git+https://github.com/jhawlwut/apparitor@v0.1.1"                  # AuthZEN client + models, no firewall dependency
-pip install "apparitor[llamafirewall] @ git+https://github.com/jhawlwut/apparitor@v0.1.1"   # LlamaFirewall scanner (pulls torch / ML stack)
-pip install "apparitor[nemo] @ git+https://github.com/jhawlwut/apparitor@v0.1.1"            # NeMo Guardrails rail
-pip install "apparitor[fastmcp] @ git+https://github.com/jhawlwut/apparitor@v0.1.1"         # FastMCP server middleware
-pip install "apparitor[a2a] @ git+https://github.com/jhawlwut/apparitor@v0.1.1"             # A2A agent-executor adapter
-pip install "apparitor[cedar] @ git+https://github.com/jhawlwut/apparitor@v0.1.1"           # in-process Cedar backend (cedarpy, no server)
+pip install apparitor                    # AuthZEN client + models, no firewall dependency
+pip install "apparitor[llamafirewall]"   # LlamaFirewall scanner (pulls torch / ML stack)
+pip install "apparitor[nemo]"            # NeMo Guardrails rail
+pip install "apparitor[fastmcp]"         # FastMCP server middleware
+pip install "apparitor[a2a]"             # A2A agent-executor adapter
+pip install "apparitor[cedar]"           # in-process Cedar backend (cedarpy, no server)
 ```
 
 `[llamafirewall]` pulls LlamaFirewall's ML dependencies (torch, PromptGuard); the bare
