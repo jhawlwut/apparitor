@@ -18,6 +18,8 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
       - run: uv pip install --system build twine
       - run: python -m build
       - run: twine check dist/*
@@ -49,6 +51,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
       - run: uv pip install --system -e ".[dev]"
       - name: Ruff (lint)
         run: ruff check .
