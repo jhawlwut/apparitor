@@ -1,6 +1,6 @@
 # Architecture
 
-How apparitor turns an agent's tool call into an authorization decision — today via its
+How apparitor turns an agent's tool call into an authorization decision, today via its
 LlamaFirewall scanner and the AuthZEN evaluation pipeline. Design rationale lives in
 [requirements.md](requirements.md); this document focuses on the runtime shape.
 
@@ -16,7 +16,7 @@ LlamaFirewall scanner and the AuthZEN evaluation pipeline. Design rationale live
 ```
 
 Content-safety scanners answer *"is this malicious?"* The AuthZEN scanner answers
-*"is this allowed?"* — the orthogonal, previously-missing axis. It binds to the
+*"is this allowed?"*, the orthogonal, previously-missing axis. It binds to the
 `ASSISTANT` role so it runs **before** the tool call is dispatched.
 
 ## The scan pipeline
@@ -52,7 +52,7 @@ Scanner → mapping      : EvaluationRequest (subject from ContextVar)
 Scanner → AuthZEN PDP  : POST /access/v1/evaluation  {subject, action, resource, context}
 AuthZEN PDP → Scanner  : { "decision": false, "context": {...} }
 Scanner → LlamaFirewall: ScanResult(BLOCK, reason, score=1.0)
-LlamaFirewall → Agent  : blocked — tool not dispatched
+LlamaFirewall → Agent  : blocked (tool not dispatched)
 ```
 
 ## Module boundaries
@@ -60,17 +60,17 @@ LlamaFirewall → Agent  : blocked — tool not dispatched
 | Module | Optional dep | Responsibility |
 | --- | --- | --- |
 | `scanner.py` | `llamafirewall` | `Scanner` subclass; wires config; maps `VerdictResult`→`ScanResult` |
-| `engine.py` | — | firewall-free pipeline orchestration (extract → map → evaluate → decide); `AuthorizationEngine` |
-| `decision.py` | — | pure verdict vocabulary (`Verdict`, `VerdictResult`) and decision/aggregation/error logic |
-| `backends.py` | — | `DecisionBackend` protocol; `build_backend` factory; `OPABackend` (Data API) |
-| `client.py` | — | hardened HTTP transport (`HTTPDecisionTransport`); AuthZEN wire shape; retries; budget |
-| `models.py` | — | pydantic AuthZEN 1.0 request/response models |
-| `adapters.py` | — | provider-aware tool-call normalisation (OpenAI / Anthropic / LangChain) |
-| `mapping.py` | — | `ToolCallMapper` seam; subject `ContextVar`; `DualPrincipalMapper`; MCP resource ids |
-| `cache.py` | — | opt-in ALLOW-only TTL cache + SHA-256 key derivation |
-| `metrics.py` | — | `MetricsSink` protocol; `InMemoryMetrics` (latency histogram, decision/cache counters) |
-| `config.py` | — | `ScannerConfig` (pydantic) + `OnError` / `Backend` enums |
-| `errors.py` | — | exception hierarchy; httpx exceptions mapped here |
+| `engine.py` | none | firewall-free pipeline orchestration (extract → map → evaluate → decide); `AuthorizationEngine` |
+| `decision.py` | none | pure verdict vocabulary (`Verdict`, `VerdictResult`) and decision/aggregation/error logic |
+| `backends.py` | none | `DecisionBackend` protocol; `build_backend` factory; `OPABackend` (Data API) |
+| `client.py` | none | hardened HTTP transport (`HTTPDecisionTransport`); AuthZEN wire shape; retries; budget |
+| `models.py` | none | pydantic AuthZEN 1.0 request/response models |
+| `adapters.py` | none | provider-aware tool-call normalisation (OpenAI / Anthropic / LangChain) |
+| `mapping.py` | none | `ToolCallMapper` seam; subject `ContextVar`; `DualPrincipalMapper`; MCP resource ids |
+| `cache.py` | none | opt-in ALLOW-only TTL cache + SHA-256 key derivation |
+| `metrics.py` | none | `MetricsSink` protocol; `InMemoryMetrics` (latency histogram, decision/cache counters) |
+| `config.py` | none | `ScannerConfig` (pydantic) + `OnError` / `Backend` enums |
+| `errors.py` | none | exception hierarchy; httpx exceptions mapped here |
 | `cedar.py` | `cedarpy` | in-process Cedar backend; policies/entities loaded at construction; fail-closed |
 | `nemo.py` | `nemoguardrails` | NeMo Guardrails rail adapter (`NeMoAuthorizationRails`); same engine as scanner |
 | `fastmcp.py` | `fastmcp` | FastMCP server middleware (`FastMCPAuthorizationMiddleware`); subject from OAuth token |
@@ -96,7 +96,7 @@ The configured-instance path is primary because our scanner needs constructor ar
 
 ## Decision & error tables
 
-See [requirements.md §3.5–3.6](requirements.md). Summary: `true→ALLOW`, `false→BLOCK`;
+See [requirements.md §3.5 to §3.6](requirements.md). Summary: `true→ALLOW`, `false→BLOCK`;
 every error class resolves through `on_error ∈ {deny, human_review}` (no fail-open) and
 stamps `status=ERROR`.
 
@@ -105,15 +105,15 @@ stamps `status=ERROR`.
 - `scan()` is async and single-loop; the scanner holds one pooled `httpx.AsyncClient`,
   closed via `aclose()` / `async with`.
 - The decision cache is for single-loop async use. It does **not** currently coalesce
-  concurrent in-flight misses for the same key (no thundering-herd protection) — two
+  concurrent in-flight misses for the same key (no thundering-herd protection): two
   simultaneous identical scans can both hit the PDP. This is an accepted v0 limitation; a
   per-key in-flight future map is a future enhancement.
 - A synchronous client variant (if added) would use `httpx.Client` and a `threading.Lock`ed
-  cache — never an `asyncio.Lock` shared across threads, never `asyncio.run`.
+  cache, never an `asyncio.Lock` shared across threads, never `asyncio.run`.
 
 ## Performance
 
 PDP calls sit in the agent hot path. Mitigations: keep-alive via the long-lived client,
 batch (`/evaluations`) for multi-step plans, optional ALLOW caching, and a hard
 `request_budget_s` so a slow PDP degrades to a fail-closed verdict rather than stalling
-the agent. Emit latency + cache-hit metrics.
+the agent. Emit latency and cache-hit metrics.

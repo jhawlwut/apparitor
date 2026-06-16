@@ -15,7 +15,7 @@ All notable changes to this project are documented here. The format follows
   `docs/setup.md`).
 - **Security posture & assurance document** (`docs/security-review.md`): standing
   invariants, threat-model coverage, test citations, known limitations, and re-review
-  triggers — continuously scannable baseline.
+  triggers. A continuously scannable baseline.
 
 ### Security
 - **PDP response parsing now rejects duplicate JSON keys (§3.6), failing closed with
@@ -23,7 +23,7 @@ All notable changes to this project are documented here. The format follows
   raises `MalformedPDPResponseError` on any duplicate key within a JSON object, closing a
   response-validation gap at the PDP trust boundary. The fix applies to both the AuthZEN
   transport and the OPA backend. Sibling objects in a batch response (multiple `"decision"`
-  fields in distinct array entries) are correctly not flagged — the check is per-object.
+  fields in distinct array entries) are correctly not flagged; the check is per-object.
 - **Error-path `VerdictResult.reason` is now always a generic string (§3.10).** All
   error-path verdicts use the fixed `_DENY_REASON` constant, ensuring internal detail
   (exception text, transport state) is never exposed to callers. Exception detail continues
@@ -38,7 +38,7 @@ All notable changes to this project are documented here. The format follows
 - **Cedar `_entity_uid` hardened to reject backslash and control characters.** The
   rejection is now explicit at the validation seam (covering double-quote, backslash, and
   control characters), so invalid identifiers are caught before Cedar processes them. The
-  engine already failed closed on a Cedar parse error (NoDecision → BLOCK); this makes
+  engine already failed closed on a Cedar parse error (NoDecision becomes BLOCK); this makes
   the boundary explicit.
 - **`.env` added to `.gitignore`; `llamafirewall` extra capped at `<1`.** Prevents
   accidental credential commits and pins the audited major version of the ML stack.
@@ -46,7 +46,7 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 - **`AuthZENConfigError` now also inherits `ValueError` for backward compatibility.**
   Adapter constructors previously raised plain `ValueError` for misconfiguration (missing
-  PDP URL, reserved subject type, invalid label — now all four adapters, including the
+  PDP URL, reserved subject type, invalid label, now all four adapters, including the
   scanner). Code catching `except ValueError` still catches these; code that was already
   catching `except AuthZENConfigError` is unaffected. Pre-1.0 decision: keeping the mixin
   avoids a breaking change for callers that only imported the public error hierarchy after
@@ -68,9 +68,9 @@ All notable changes to this project are documented here. The format follows
   fingerprint derivation, parsing guidance, timestamp/clock requirements, an EU
   regulatory mapping (AI Act record-keeping and retention, GDPR handling, transfer
   routing), and stability policy. Pinned by
-  `tests/unit/test_log_contract.py` — a failure there is a breaking log-schema change
+  `tests/unit/test_log_contract.py`. A failure there is a breaking log-schema change
   requiring a CHANGELOG "Update log parsers" entry and a version bump.
-- **Runnable MCP authorization-gateway example (`examples/gateway/`).** FastMCP proxy
+- **Runnable MCP authorization-gateway example (`examples/gateway/`).** A FastMCP proxy
   fronting an unmodifiable upstream, middleware enforcing at the chokepoint: denied calls
   proven never to reach the upstream, listing filtered to hide what the subject may not
   call. Exercised on both supported fastmcp lines by the `gateway-demo` CI job.
@@ -82,10 +82,10 @@ All notable changes to this project are documented here. The format follows
   Also: the mock PDP now supports a subject-scoped **3-part deny form**
   (`"<subject_id>:<action>:<resource_id>"`) in addition to the existing 2-part form.
 - **Dual-principal evaluation (`DualPrincipalMapper`).** Emits two requests per tool
-  call — the end user's grant and the agent's own permission boundary — ANDed by the
+  call (the end user's grant and the agent's own permission boundary), ANDed by the
   engine's all-allow-or-block aggregation, so an agent can never exercise a permission
   its boundary denies even when the human holds it. The user leg is request-scoped only
-  (no `agent_id` fallback — that would collapse the AND); either principal unresolvable
+  (no `agent_id` fallback, which would collapse the AND); either principal unresolvable
   fails closed; `"workload"` stays reserved. Works via the `mapper=` seam in the scanner,
   the NeMo rail and the FastMCP middleware (tools + listing). Note: dual calls always
   evaluate as a batch, so the opt-in ALLOW cache is not consulted.
@@ -93,32 +93,32 @@ All notable changes to this project are documented here. The format follows
   [#39](https://github.com/jhawlwut/apparitor/issues/39)).** `A2AAuthorizationExecutor`
   and `FastMCPAuthorizationMiddleware` now accept a `boundary_subject` constructor parameter.
   When set, every invocation (A2A) or every `resources/read` / `prompts/get` request (FastMCP)
-  is evaluated as a two-request batch — the resolved caller leg AND the boundary leg — using
+  is evaluated as a two-request batch (the resolved caller leg AND the boundary leg) using
   the same AND/all-allow-or-block semantics as `DualPrincipalMapper`. For FastMCP,
   `boundary_subject` covers the resource/prompt adapter paths only; use
-  `mapper=DualPrincipalMapper(config)` for `tools/call` and listing — a full deployment sets
+  `mapper=DualPrincipalMapper(config)` for `tools/call` and listing. A full deployment sets
   both. The same fail-closed guards apply: `"workload"` boundary rejected at construction,
   collapse (boundary == caller) refused before any PDP call, cache warning emitted when
   `cache_enabled=True`. Shared helper `build_boundary_leg` in `apparitor.mapping` (exported
   from the package) powers both adapters.
 - `ToolCallMapper.map()` may now return a **sequence** of requests that must all be
-  allowed (backward compatible; `None`/empty sequence abstains — an empty group can
+  allowed (backward compatible; `None`/empty sequence abstains, since an empty group can
   never read as an allow, on either the aggregate or the per-item path).
 - **A2A agent-executor enforcement point (`apparitor.a2a`, optional `[a2a]` extra).**
   `A2AAuthorizationExecutor` wraps a deployment's `AgentExecutor` and authorizes every
   agent-to-agent invocation before it runs (action `agent.invoke`; resource
   `{type: "a2a_agent", id: <agent_label>}`, or `a2a_skill` with a `"<agent>/<skill>"` key
-  via the `skill_resolver` hook — segments validated, skill kept verbatim). The subject is
+  via the `skill_resolver` hook; segments validated, skill kept verbatim). The subject is
   the server's **authenticated peer** (`Subject(type="agent", id=<user_name>)` by
   default), falling back to a subject injected per request via
-  `ServerCallContext.state["subject"]` and then the opt-in static `agent_id` — an
+  `ServerCallContext.state["subject"]` and then the opt-in static `agent_id`. An
   unauthenticated caller is refused, and ambient contextvars are deliberately ignored
   (the SDK's detached producer task snapshots them, so they go stale across turns). The request's A2A `tenant` is forwarded in the
   AuthZEN context for multi-tenant policies (a caller-supplied claim for policies to
   cross-check, not proof). Verdicts map fail-closed: only a clean
   `ALLOW` reaches the wrapped executor; everything else raises a deliberately generic A2A
   error (the rich reason stays in the operator log). `cancel` passes through ungated in
-  v1 (documented). Built on `AuthorizationEngine.evaluate_requests` — no core changes.
+  v1 (documented). Built on `AuthorizationEngine.evaluate_requests`, no core changes.
 - **Complete MCP enforcement scope for the FastMCP middleware** (closes
   [#32](https://github.com/jhawlwut/apparitor/issues/32),
   [#33](https://github.com/jhawlwut/apparitor/issues/33),
@@ -129,24 +129,24 @@ All notable changes to this project are documented here. The format follows
     chain, generic refusals (`ResourceError`/`PromptError`) and fail-closed verdict
     mapping as tool calls; `gate_resources=False` / `gate_prompts=False` opt a hook out.
     **Breaking (pre-alpha):** deployments without resource/prompt policies will see those
-    requests denied — write policies or opt out.
+    requests denied; write policies or opt out.
   - Opt-in `filter_listings=True` hides tools from `tools/list` whose `tools/call` the
-    subject would be denied — one batch PDP round trip, advisory only (`tools/call`
+    subject would be denied. One batch PDP round trip, advisory only (`tools/call`
     remains the enforcement invariant), and fail-closed (no subject or any fault hides
     everything).
   - Opt-in `allow_workload_subject=True` authorizes verified client-credentials tokens
-    (no `sub` claim) as the distinct `Subject(type="workload", id=<client_id>)` — never
+    (no `sub` claim) as the distinct `Subject(type="workload", id=<client_id>)`, never
     coerced into a user subject; off by default, such tokens keep refusing. The
     `"workload"` subject type is reserved (the constructor rejects it for claim-derived
     and static subjects). Only `tools/list` is filtered; `resources/list` and
     `prompts/list` still advertise names/URIs even though reads/gets are gated.
 - `AuthorizationEngine.evaluate_requests()` (pre-mapped requests, e.g. adapter-shaped
   resource/prompt tuples) and `AuthorizationEngine.evaluate_each()` (positional per-item
-  verdicts over one batch round trip, for visibility filtering — fail-closed per item).
+  verdicts over one batch round trip, for visibility filtering, fail-closed per item).
 - **Three-PEP portability demo (`examples/three-peps/`).** The same vendored Cedar policy
   (`examples/cedar/policies.cedar`, deny-override on `destructive == true`) enforced
   identically at the LlamaFirewall scanner, the NeMo Guardrails rail, and the FastMCP
-  middleware over the in-process Cedar backend — no Docker, no network. Self-asserting
+  middleware over the in-process Cedar backend: no Docker, no network. Self-asserting
   (exits non-zero on any verdict mismatch) and gated in CI by the `three-pep-demo` job,
   which installs all three enforcement-point extras and requires every lane to run.
 - **FastMCP server-middleware enforcement point (`apparitor.fastmcp`, optional `[fastmcp]`
@@ -159,12 +159,12 @@ All notable changes to this project are documented here. The format follows
   only a clean `ALLOW` executes; `BLOCK` / `HUMAN_REVIEW` / mapper abstention / errors raise
   a deliberately generic `ToolError` (the rich reason stays in the operator log). Supports
   fastmcp 2.14 and 3.x (both exercised in CI).
-- `AuthorizationEngine.evaluate_normalized()` — a public seam for enforcement points that
+- `AuthorizationEngine.evaluate_normalized()`: a public seam for enforcement points that
   receive tool calls in structured form (no provider-shape adapter detection).
 - `MCPResourceMapper` can now resolve its server label per call from
   `request_context[MCP_SERVER_LABEL_KEY]`; the tool segment gets the same case/whitespace
   normalisation as the default mapper, and `mcp_resource_id` rejects embedded `/` (an
-  ambiguous policy key) — fail-closed.
+  ambiguous policy key), fail-closed.
 - `DecisionCache` is bounded: new `cache_max_entries` config (default 10 000, FIFO
   eviction) so per-token subject cardinality cannot grow the ALLOW cache without limit.
 - **Docker-free OpenFGA integration backend (linux/amd64).** Set `APPARITOR_OPENFGA_NATIVE=1` to run the
@@ -175,7 +175,7 @@ All notable changes to this project are documented here. The format follows
 - **Working scan pipeline (M1).** `AuthZENScanner.scan()` authorizes an agent's tool
   calls end-to-end: extract → map → evaluate → decide.
 - LlamaFirewall-free `AuthorizationEngine` holding all logic, so the pipeline is fully
-  unit-testable without the ML stack; the scanner is a thin adapter that converts the
+  unit-testable without the ML stack. The scanner is a thin adapter that converts the
   verdict to a `ScanResult`.
 - `AuthZENClient`: async httpx transport with explicit timeouts, a request budget,
   bounded retries (429/5xx/transport only) with jittered backoff, an SSRF/TLS guard on
@@ -211,13 +211,13 @@ All notable changes to this project are documented here. The format follows
 - **Audit-log message prefixes normalized `authzen` → `apparitor`** to match the logger
   name and project name. Field names and grammar are unchanged. **Update log parsers**
   anchoring on the old `authzen decision`, `authzen batch`, or `authzen per-item`
-  prefixes — replace with `apparitor decision`, `apparitor batch`,
+  prefixes: replace with `apparitor decision`, `apparitor batch`,
   `apparitor per-item`.
-- The structured decision log's resource-id field is now `resources=` (was `tools=`) —
-  it can carry resource URIs and prompt keys, not just tool names. Update log parsers.
+- The structured decision log's resource-id field is now `resources=` (was `tools=`).
+  It can carry resource URIs and prompt keys, not just tool names. Update log parsers.
 - The structured decision log now records **every distinct principal** as `subjects=`
-  (was `subject=` with only the first leg) — under dual-principal evaluation the audit
-  trail must name both the user and the agent — and `resources=` / `fingerprints=`
+  (was `subject=` with only the first leg). Under dual-principal evaluation the audit
+  trail must name both the user and the agent, and `resources=` / `fingerprints=`
   carry one entry per evaluation request, so dual legs appear twice. Update log parsers.
 - `DefaultToolCallMapper.map()`'s return annotation is widened to the full
   `ToolCallMapper` union; a typed subclass that delegates to `super().map()` must
@@ -227,7 +227,7 @@ All notable changes to this project are documented here. The format follows
   agentic firewalls (LlamaFirewall today; NeMo Guardrails planned), rather than an
   AuthZEN-scanner-for-LlamaFirewall only. The Python import package and PyPI distribution
   are now **`apparitor`** (was `authzen_llamafirewall` / `authzen-llamafirewall-scanner`):
-  `from apparitor import AuthZENScanner`. Breaking import change — acceptable pre-alpha, no
+  `from apparitor import AuthZENScanner`. Breaking import change, acceptable pre-alpha, no
   published release affected. Public API names (`AuthZENScanner`, `AuthorizationEngine`, …)
   are unchanged.
 - **Spec fix:** the batch options field is now `evaluations_semantic` (plural), matching

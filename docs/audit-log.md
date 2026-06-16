@@ -1,4 +1,4 @@
-# Audit log — stability contract
+# Audit log: stability contract
 
 Every authorization decision emits one structured log line on the `apparitor` logger.
 This document freezes the schema from `0.1.0` as a stability contract. A failure in
@@ -21,10 +21,10 @@ other user identifiers. Route the `apparitor` logger to a restricted sink accord
 
 ## Contract lines (frozen from 0.1.0)
 
-### C1 — decision audit record
+### C1: decision audit record
 
 Emitted by `_log` in `engine.py` at `INFO` level for every authorization call that
-produces a decision (skip paths are silent — see below).
+produces a decision (skip paths are silent; see below).
 
 **Format string:**
 
@@ -45,7 +45,7 @@ apparitor decision verdict=allow status=success subjects=['alice@acme.com', 'tra
 | `verdict` | `str` enum | Authorization outcome: `allow`, `block`, `human_review` | No |
 | `status` | `str` enum | Evaluation path: `success`, `error` | No |
 | `subjects` | Python-repr list of strings | Sorted, deduplicated subject **ids only** (no type); one entry per distinct principal | No |
-| `correlation` | `str` or `None` | Value of `correlation_id` from the request context, rendered as the literal `None` when absent — never omitted | Yes (renders as `None`) |
+| `correlation` | `str` or `None` | Value of `correlation_id` from the request context, rendered as the literal `None` when absent, never omitted | Yes (renders as `None`) |
 | `resources` | Python-repr list of strings | Resource ids, positional per evaluation request; dual-principal = two entries (one per leg), duplicates expected | No |
 | `fingerprints` | Python-repr list of strings | 12-character hex digests, positional per request (same order as `resources`) | No |
 | `latency_ms` | `float`, always one decimal (`%.1f`) | Wall-clock time from first `perf_counter` to emit, in milliseconds | No |
@@ -61,16 +61,16 @@ apparitor decision verdict=allow status=success subjects=['alice@acme.com', 'tra
   PDP. A dual-principal call emits two entries even when the resource id is identical for
   both legs.
 - C1 is **not** emitted on SKIP paths (empty tool-call list, mapper abstention on all
-  calls). Silence is by design on skip — there is nothing to audit. SKIP paths emit no C1
+  calls). Silence is by design on skip; there is nothing to audit. SKIP paths emit no C1
   line; in practice verdict is `allow`|`block`|`human_review` and status is
   `success`|`error`.
 
-### C2 — batch denied-legs companion
+### C2: batch denied-legs companion
 
 Emitted in `_evaluate_batch` in `engine.py` at `INFO` level. Companion to C1 on
 multi-request batches (the aggregate enforcement path, `/evaluations`) where the aggregate
 verdict is not `allow`. The per-item `evaluate_each` path also uses a batch PDP call but
-emits C3, never C2 — C2 belongs to the aggregate enforcement path only.
+emits C3, never C2. C2 belongs to the aggregate enforcement path only.
 
 **Format string:**
 
@@ -88,7 +88,7 @@ apparitor batch denied_legs=['user:alice@acme.com tool_call.execute files/delete
 
 | Field | Type | Semantics | Can be None? |
 | --- | --- | --- | --- |
-| `denied_legs` | Python-repr list of strings | One entry per denied leg; each entry: `<subject.type>:<subject.id> <action.name> <resource.id>` | No (empty list not emitted — a non-ALLOW aggregate from `aggregate()` implies at least one decision was false, so `denied_legs` is never empty when C2 fires) |
+| `denied_legs` | Python-repr list of strings | One entry per denied leg; each entry: `<subject.type>:<subject.id> <action.name> <resource.id>` | No (empty list not emitted; a non-ALLOW aggregate from `aggregate()` implies at least one decision was false, so `denied_legs` is never empty when C2 fires) |
 
 **Notes:**
 
@@ -96,14 +96,14 @@ apparitor batch denied_legs=['user:alice@acme.com tool_call.execute files/delete
   only). This lets an operator distinguish a user-grant deny from an agent-boundary deny
   at a glance.
 - C2 never carries raw arguments or request context.
-- C2 only fires on multi-request batches (`/evaluations`) — single-request denies produce
+- C2 only fires on multi-request batches (`/evaluations`); single-request denies produce
   C1 only.
 
-### C3 — evaluate_each summary
+### C3: evaluate_each summary
 
 Emitted in `_emit_each` in `engine.py` at `INFO` level. Advisory summary for
 `evaluate_each` (per-item visibility filtering, e.g. `tools/list`). **Not an audit
-record** — no subjects, resources, fingerprints, or correlation id.
+record**: no subjects, resources, fingerprints, or correlation id.
 
 **Format string:**
 
@@ -129,21 +129,21 @@ apparitor per-item decisions verdicts=['allow', 'block'] latency_ms=8.4
 - C3 is advisory only. Do not rely on it for audit, alerting, or access-control decisions;
   use C1 for enforcement-path records.
 - Verdicts in `evaluate_each` counters are indistinguishable from C1 enforcement decisions
-  in the metrics sink — account for that when alerting on block rates.
+  in the metrics sink; account for that when alerting on block rates.
 
 ## Timestamps and clock
 
 The contract lines deliberately carry **no timestamp token**: the `logging.LogRecord`'s
 `created` attribute (rendered via your formatter's `%(asctime)s`) is the time source, as
 is standard for Python logging. Two consequences for deployments that keep these lines as
-audit records:
+audit records.
 
 - **Configure the formatter** on the `apparitor` logger's handler to emit an ISO-8601
   UTC timestamp (e.g. `%(asctime)s` with a UTC converter). A sink that stores only
   `getMessage()` without record metadata has no event time and cannot serve as an audit
   trail.
-- The host's clock is the clock of record — regulated deployments should run NTP-
-  disciplined clocks on enforcement points.
+- The host's clock is the clock of record. Run NTP-disciplined clocks on enforcement
+  points in regulated deployments.
 
 ## Parsing guidance
 
@@ -195,7 +195,7 @@ access-controlled sink and do not forward it to end users.
 
 Informational lines use the `apparitor: <message>` form (colon after `apparitor`); contract
 lines use `apparitor decision|batch|per-item` (no colon). That delimiter difference is the
-operator's separator — informational lines are **not** part of the stability contract and
+operator's separator. Informational lines are **not** part of the stability contract and
 may change without notice.
 
 | Prefix | Level | When |
@@ -227,24 +227,24 @@ may change without notice.
 The schema is designed so the operator's sink can satisfy the EU obligations that most
 commonly attach to agent authorization records. apparitor provides the *recording
 capability*; retention, residency, and access control are properties of the sink you
-route the `apparitor` logger to. Confirm applicability with your compliance function —
-this section maps the schema, it is not legal advice.
+route the `apparitor` logger to. Confirm applicability with your compliance function. This
+section maps the schema, it is not legal advice.
 
 | Obligation | How the schema relates |
 | --- | --- |
-| **AI Act (Reg. (EU) 2024/1689) Art. 12 — record-keeping.** High-risk AI systems must technically allow automatic recording of events enabling traceability of the system's functioning. | C1 is that record for the authorization function: per-decision outcome, every principal involved, the resource acted on, and a per-call fingerprint. Set `correlation_id` on every request so decisions chain to sessions/tasks — for regulated deployments treat it as required, not optional. |
-| **AI Act Arts. 19 / 26(6) — log retention.** Providers and deployers of high-risk systems keep automatically generated logs at least **six months** (longer where other law requires). | Retention happens at the sink, not in apparitor (persistence is deliberately out of scope pre-`v0.1`). Route the logger to a sink with a retention policy meeting your role's obligation. |
-| **AI Act Art. 14 — human oversight.** | `verdict=human_review` records that a decision was escalated to a human. Who reviewed it and the outcome happen outside apparitor — your review workflow must produce its own record and can join on `correlation` / `fingerprints`. |
-| **GDPR (Reg. (EU) 2016/679) — personal data in logs.** | `subjects=` ids and `denied_legs=` entries are personal data when they identify people (emails). You need a lawful basis (security/audit logging is commonly Art. 6(1)(f)); minimization is designed in (no raw arguments, no tokens, generic wire reasons); prefer pseudonymous subject ids from your IdP where policy allows. Fingerprints are **pseudonymized, not anonymous** — the digest is linkable to the request tuple by anyone who can reconstruct it. |
-| **GDPR Arts. 5(1)(e), 17 — storage limitation and erasure.** | Audit retention and erasure requests are in tension; Art. 17(3)(b)/(e) exemptions (legal obligation, legal claims) typically cover security audit trails for their retention window. Pseudonymous subject ids make this materially easier — decide before go-live, not at the first request. |
-| **GDPR Ch. V / data sovereignty.** | Routing the `apparitor` logger to a sink outside the EU/EEA is a personal-data transfer. If residency is a requirement, the log pipeline — not just the PDP — must stay in-region. |
-| **NIS2 (Dir. (EU) 2022/2555) / DORA (Reg. (EU) 2022/2554).** | The decision log feeds detection and incident reconstruction (denied legs name which principal was stopped, fail-closed errors are visible at WARNING/ERROR). Integrity protection (append-only storage, tamper evidence) is a sink property — these lines carry no signatures. |
+| **AI Act (Reg. (EU) 2024/1689) Art. 12, record-keeping.** High-risk AI systems must technically allow automatic recording of events enabling traceability of the system's functioning. | C1 is that record for the authorization function: per-decision outcome, every principal involved, the resource acted on, and a per-call fingerprint. Set `correlation_id` on every request so decisions chain to sessions/tasks. For regulated deployments treat it as required, not optional. |
+| **AI Act Arts. 19 / 26(6), log retention.** Providers and deployers of high-risk systems keep automatically generated logs at least **six months** (longer where other law requires). | Retention happens at the sink, not in apparitor (persistence is deliberately out of scope pre-`v0.1`). Route the logger to a sink with a retention policy meeting your role's obligation. |
+| **AI Act Art. 14, human oversight.** | `verdict=human_review` records that a decision was escalated to a human. Who reviewed it and the outcome happen outside apparitor. Your review workflow must produce its own record and can join on `correlation` / `fingerprints`. |
+| **GDPR (Reg. (EU) 2016/679), personal data in logs.** | `subjects=` ids and `denied_legs=` entries are personal data when they identify people (emails). You need a lawful basis (security/audit logging is commonly Art. 6(1)(f)); minimization is designed in (no raw arguments, no tokens, generic wire reasons); prefer pseudonymous subject ids from your IdP where policy allows. Fingerprints are **pseudonymized, not anonymous**: the digest is linkable to the request tuple by anyone who can reconstruct it. |
+| **GDPR Arts. 5(1)(e), 17, storage limitation and erasure.** | Audit retention and erasure requests are in tension; Art. 17(3)(b)/(e) exemptions (legal obligation, legal claims) typically cover security audit trails for their retention window. Pseudonymous subject ids make this materially easier. Decide before go-live, not at the first request. |
+| **GDPR Ch. V / data sovereignty.** | Routing the `apparitor` logger to a sink outside the EU/EEA is a personal-data transfer. If residency is a requirement, the log pipeline (not just the PDP) must stay in-region. |
+| **NIS2 (Dir. (EU) 2022/2555) / DORA (Reg. (EU) 2022/2554).** | The decision log feeds detection and incident reconstruction (denied legs name which principal was stopped, fail-closed errors are visible at WARNING/ERROR). Integrity protection (append-only storage, tamper evidence) is a sink property; these lines carry no signatures. |
 
 One known limitation to weigh for AI Act traceability: with the default
 `redact_arguments=True`, the input data of a call is represented only by argument **key
-names** inside the fingerprint (see above). Deployments whose obligations require
-reconstructing *what* was attempted — not just *that* it was attempted, by whom, on which
-resource — must either set `redact_arguments=False` (weigh the GDPR minimization cost) or
+names** inside the fingerprint (see above). Some obligations require reconstructing *what*
+was attempted, not just *that* it was attempted, by whom, on which resource. Those
+deployments must either set `redact_arguments=False` (weigh the GDPR minimization cost) or
 keep input records in an adjacent system joined via `correlation`.
 
 ## Stability policy
@@ -260,5 +260,5 @@ semantic changes to existing tokens are breaking and require:
 breaking change is in flight.
 
 **Out of scope (tracked, deferred):** structured log persistence, cross-session
-aggregation, retention, and compliance export are post-`v0.1` work items — see
+aggregation, retention, and compliance export are post-`v0.1` work items. See
 [ROADMAP.md](../ROADMAP.md).

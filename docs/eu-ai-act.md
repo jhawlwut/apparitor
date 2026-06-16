@@ -1,10 +1,10 @@
-# EU AI Act — Compliance Reference
+# EU AI Act: Compliance Reference
 
 This document maps apparitor's decision log and verdict model onto the EU AI Act
 obligations relevant to agentic AI deployments. It is not legal advice and does not
 substitute for an assessment against the full Act text or Annex III.
 
-**Enforcement deadline:** high-risk AI system obligations under Articles 8–17, 26, and
+**Enforcement deadline:** high-risk AI system obligations under Articles 8 to 17, 26, and
 73 apply from **2 August 2026**.
 
 ## Which articles apply
@@ -24,15 +24,15 @@ at `INFO` level. The line is machine-parseable and maps onto Article 12 as follo
 
 | Log field | Example | Article 12 relevance |
 |-----------|---------|---------------------|
-| `verdict` | `allow` / `block` / `human_review` | Risk event — every denial and every escalation to human review |
-| `status` | `success` / `error` | Risk event — `error` means the PDP was unreachable; the agent was still blocked (fail-closed) |
+| `verdict` | `allow` / `block` / `human_review` | Risk event: every denial and every escalation to human review |
+| `status` | `success` / `error` | Risk event: `error` means the PDP was unreachable; the agent was still blocked (fail-closed) |
 | `subjects` | `["user:alice@acme.com", "agent:travel-bot"]` | Identity of every principal at the moment of decision; under dual-principal evaluation both the end-user and the agent boundary appear |
 | `resources` | `["database.delete_table"]` | The tool, resource URI, or A2A agent the action targeted |
-| `fingerprints` | `["a3f8c1d2b5e4"]` | Short SHA-256 digest of the full request tuple — identifies the exact call without logging raw arguments |
+| `fingerprints` | `["a3f8c1d2b5e4"]` | Short SHA-256 digest of the full request tuple; identifies the exact call without logging raw arguments |
 | `correlation` | `"conv-abc-123"` | Ties the decision to the wider agent session for cross-event traceability |
 | `latency_ms` | `12.4` | Operational monitoring |
 
-Two event classes that the policy engine never records are present here:
+The apparitor log records two event classes the PDP never sees:
 
 - **Error-path blocks** (`status=error`): when the PDP is unreachable and the call is
   blocked fail-closed, the event appears in the apparitor log. The PDP has no record of it.
@@ -45,9 +45,9 @@ Two event classes that the policy engine never records are present here:
 `HUMAN_IN_THE_LOOP_REQUIRED` is a first-class verdict in apparitor's decision model,
 not an add-on. Two ways to reach it:
 
-- `on_error=human_review` — PDP-unavailable events escalate to human review rather than
+- `on_error=human_review`: PDP-unavailable events escalate to human review rather than
   hard-blocking (default is `on_error=deny`; there is no fail-open option).
-- `review_predicate` — a caller-supplied function over the PDP response `context` that
+- `review_predicate`: a caller-supplied function over the PDP response `context` that
   can escalate specific policy responses to human review; it can only escalate, never
   downgrade a deny.
 
@@ -56,9 +56,9 @@ Only a clean `ALLOW` proceeds to tool execution. Both `HUMAN_IN_THE_LOOP_REQUIRE
 
 ### Fail-closed default
 
-`on_error=deny` is the default. When authorization cannot be completed — PDP
-unreachable, timeout, malformed response — the call is blocked and the event is logged
-with `status=error`. There is no global fail-open configuration option.
+`on_error=deny` is the default. When authorization cannot be completed (PDP unreachable,
+timeout, malformed response), the call is blocked and the event is logged with
+`status=error`. There is no global fail-open configuration option.
 
 ## What the deployer must provide
 
@@ -66,7 +66,7 @@ apparitor emits the right events. **Tamper-evidence and retention are infrastruc
 obligations the deployer must satisfy under Article 26.**
 
 **Tamper-evidence:** route the `apparitor` logger to an append-only, write-protected log
-store — AWS CloudWatch with tamper protection, Azure Monitor Logs, an immutable S3 bucket
+store: AWS CloudWatch with tamper protection, Azure Monitor Logs, an immutable S3 bucket
 with Object Lock, a SIEM, or equivalent. Python's `logging` module alone is not
 tamper-evident.
 

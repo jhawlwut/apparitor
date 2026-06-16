@@ -1,6 +1,6 @@
 # OPA / Rego example
 
-Wires the scanner to [OPA](https://www.openpolicyagent.org/) (Open Policy Agent) — the
+Wires the scanner to [OPA](https://www.openpolicyagent.org/) (Open Policy Agent), the
 CNCF **policy-as-code** engine and its **Rego** language. OPA exposes its own Data API
 (`POST /v1/data/...` returning `{"result": ...}`), not AuthZEN, so this example runs the
 official `opa` binary behind a small **AuthZEN gateway** we own
@@ -8,7 +8,7 @@ official `opa` binary behind a small **AuthZEN gateway** we own
 feeds each request to OPA as the policy `input` and evaluates the vendored Rego policy.
 
 If you'd rather skip the gateway, the scanner also has a **native OPA backend** that talks
-OPA's Data API directly (`ScannerConfig(backend="opa")`) — see
+OPA's Data API directly (`ScannerConfig(backend="opa")`). See
 [Native backend (no gateway)](#native-backend-no-gateway) below.
 
 Together with the [OpenFGA example](../openfga/) (relationship-based) and the
@@ -20,7 +20,7 @@ gateway over the same AuthZEN API.
 ## What it shows
 
 [`policy.rego`](policy.rego) permits the demo agent to execute low-sensitivity,
-non-destructive tools and denies everything else — `default allow := false` is the
+non-destructive tools and denies everything else; `default allow := false` is the
 fail-closed pivot. Tool attributes live in [`data.json`](data.json):
 
 | Tool | `sensitivity` | `destructive` | Decision |
@@ -49,15 +49,15 @@ closed, so under `execute_all` the message is allowed only if every call is perm
 
 ## Performance (and why it isn't tuned)
 
-The gateway forks `opa eval` once per decision — recompiling the policy each time — and
+The gateway forks `opa eval` once per decision (recompiling the policy each time) and
 evaluates batch entries **sequentially**, so an N-tool-call batch costs roughly N serial
-`opa` invocations. This is deliberate, not an oversight: sequential forks plus the
+`opa` invocations. This is deliberate: sequential forks plus the
 `_MAX_BATCH` cap bound how many `opa` processes an unauthenticated caller can spawn at once,
 so the shim can't become a fork-amplification lever. Don't "optimise" it into a thread pool
 without first adding a **global** concurrency cap and container CPU/memory limits, or you
 reopen that denial-of-service surface.
 
-It's example glue to show the scanner speaks AuthZEN to OPA — not a latency-tuned PDP. For
+It's example glue to show the scanner speaks AuthZEN to OPA, not a latency-tuned PDP. For
 real throughput, run OPA as a long-lived server (`opa run --server`) and translate AuthZEN
 onto its Data API, or front it with a service that owns its own concurrency and limits. The
 scanner protects itself regardless: a slow PDP trips its `request_budget_s` and fails closed
@@ -74,7 +74,7 @@ image ([`gateway/Dockerfile`](gateway/Dockerfile)), so the build is offline and 
 
 This builds + starts the gateway ([`docker-compose.yml`](docker-compose.yml)) and asserts a
 permitted tool is allowed, a destructive one is denied, and a batch is allowed only when
-every entry is permitted — then tears down.
+every entry is permitted, then tears down.
 
 ## Point the scanner at it
 
@@ -95,8 +95,8 @@ image and drives the real engine against it. See [../README.md](../README.md).
 ## Native backend (no gateway)
 
 The gateway above lets the scanner speak plain AuthZEN to OPA. If you'd rather skip the
-AuthZEN hop, the scanner has a **native OPA backend** that talks OPA's Data API directly —
-no gateway process. Run OPA in server mode over the same vendored policy + data:
+AuthZEN hop, the scanner has a **native OPA backend** that talks OPA's Data API directly,
+with no gateway process. Run OPA in server mode over the same vendored policy + data:
 
 ```bash
 opa run --server --addr localhost:8181 policy.rego data.json
@@ -112,7 +112,7 @@ scanner = AuthZENScanner(config=ScannerConfig(
     pdp_url="http://127.0.0.1:8181",
     allow_insecure_pdp=True,                    # local dev, plain HTTP
     agent_id="demo-agent",
-    opa_decision_path="apparitor/authz/allow",  # the boolean Rego rule to query — set this
+    opa_decision_path="apparitor/authz/allow",  # the boolean Rego rule to query; set this
                                                 # to match your own policy's package + rule
 
 ))
@@ -130,7 +130,7 @@ When to use which:
 
 | | Gateway (AuthZEN) | Native backend (`backend="opa"`) |
 | --- | --- | --- |
-| Extra process | the gateway shim | none — talks to OPA directly |
+| Extra process | the gateway shim | none, talks to OPA directly |
 | Wire protocol | AuthZEN | OPA Data API |
 | Advisory `context` / HITL `review_predicate` | available | not applicable (boolean rule only) |
 | Best for | standardising on AuthZEN across engines | deployments already running OPA |

@@ -8,7 +8,7 @@ drives them through the real models and `AuthZENClient` (via `respx`, no network
   (including `options.evaluations_semantic`, plural, per AuthZEN 1.0);
 - every **response** parses to the authoritative boolean `decision`, mapping to the right
   verdict (single) or aggregate (batch);
-- **malformed** responses (missing / non-bool `decision`) fail closed — never a coerced
+- **malformed** responses (missing / non-bool `decision`) fail closed, never a coerced
   ALLOW (the `StrictBool` invariant).
 
 ## Provenance
@@ -24,7 +24,7 @@ not a PDP's policy decisions, so no policy engine is required.
 **Todo** scenario (the Rick & Morty role matrix); [`test_interop_todo.py`](test_interop_todo.py)
 drives every `(subject, action, resource)` tuple through the same models + client (mocked
 PDP, no network), checks a non-conformant short response array fails closed (BLOCK), and
-**re-derives every decision from the directory roles + role rules** — so a mislabeled
+**re-derives every decision from the directory roles + role rules**, so a mislabeled
 `expected_decision` fails the suite rather than passing silently (the self-check reads roles
 from the vendored directory, so it guards the decision cells against the rules, not the
 directory itself).
@@ -44,7 +44,7 @@ so the matrix stays re-verifiable against the exact source it was transcribed fr
 Documented deviations from the live interop (see `_deviations` in the dataset): subjects use
 the directory's **email** identity under the spec field `subject.id` rather than the
 OIDC-encoded `sub` the interop resolves through the same directory (the interop's create/update
-examples use a non-spec `subject.identity` key, which AuthZEN 1.0 doesn't define — we use
+examples use a non-spec `subject.identity` key, which AuthZEN 1.0 doesn't define, so we use
 `id`); `can_create_todo` requests carry a `resource.id` because AuthZEN 1.0 marks it REQUIRED
 (the draft payload omits it, and the decision is role-based regardless); and the optional empty
 `context: {}` is omitted.

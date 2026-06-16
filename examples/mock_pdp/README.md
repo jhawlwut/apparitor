@@ -1,6 +1,6 @@
 # Mock PDP
 
-A tiny, dependency-free AuthZEN PDP for tests and demos — implemented in
+A tiny, dependency-free AuthZEN PDP for tests and demos, implemented in
 [`mock_pdp.py`](mock_pdp.py) using only the standard library. It serves
 `POST /access/v1/evaluation` and `/access/v1/evaluations`, allowing everything except a
 configurable deny-list.
@@ -12,7 +12,7 @@ Two deny-rule forms are supported:
 | `<action>:<resource_id>` | Any subject performing that action on that resource |
 | `<subject_id>:<action>:<resource_id>` | A specific subject performing that action on that resource |
 
-Both are pure membership tests on the composed key — never split or parsed — so resource
+Both are pure membership tests on the composed key (never split or parsed), so resource
 ids containing `:` are safe.
 
 ```bash
@@ -33,5 +33,5 @@ scanner = AuthZENScanner(config=ScannerConfig(
 ))
 ```
 
-This is not a real authorization engine — it exists to exercise the scanner end-to-end
+This is not a real authorization engine. It exists to exercise the scanner end-to-end
 without standing up OpenFGA/Cedar. See [../README.md](../README.md).
