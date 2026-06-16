@@ -7,6 +7,7 @@
 [![Coverage](https://img.shields.io/badge/core%20coverage-%E2%89%A590%25-brightgreen.svg)](https://github.com/jhawlwut/apparitor/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/jhawlwut/apparitor?utm_source=oss&utm_medium=github&utm_campaign=jhawlwut%2Fapparitor&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai)
 
 **Your agents route around the authorization you already run.** apparitor brings them
 back under it. Every agent action (an LLM tool call, an MCP request, an agent-to-agent
