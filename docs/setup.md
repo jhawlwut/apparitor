@@ -15,14 +15,20 @@ behind a gateway.
 
 ## Installation
 
+apparitor is not published to PyPI yet — install from source, pinned to a release tag, and
+add the extra(s) your enforcement point and backend need:
+
 ```bash
-pip install apparitor                       # AuthZEN client + models, no firewall dependency
-pip install "apparitor[llamafirewall]"      # LlamaFirewall scanner (pulls torch / ML stack)
-pip install "apparitor[nemo]"              # NeMo Guardrails rail
-pip install "apparitor[fastmcp]"           # FastMCP server middleware
-pip install "apparitor[a2a]"               # A2A agent-executor adapter
-pip install "apparitor[cedar]"             # in-process Cedar backend (cedarpy, no server)
+pip install "apparitor @ git+https://github.com/jhawlwut/apparitor@v0.1.1"                  # AuthZEN client + models, no firewall dependency
+pip install "apparitor[llamafirewall] @ git+https://github.com/jhawlwut/apparitor@v0.1.1"   # LlamaFirewall scanner (pulls torch / ML stack)
+pip install "apparitor[nemo] @ git+https://github.com/jhawlwut/apparitor@v0.1.1"            # NeMo Guardrails rail
+pip install "apparitor[fastmcp] @ git+https://github.com/jhawlwut/apparitor@v0.1.1"         # FastMCP server middleware
+pip install "apparitor[a2a] @ git+https://github.com/jhawlwut/apparitor@v0.1.1"             # A2A agent-executor adapter
+pip install "apparitor[cedar] @ git+https://github.com/jhawlwut/apparitor@v0.1.1"           # in-process Cedar backend (cedarpy, no server)
 ```
+
+`[llamafirewall]` pulls LlamaFirewall's ML dependencies (torch, PromptGuard); the bare
+install and all other extras work without it.
 
 ## Authentication & TLS (bring-your-own httpx client)
 
@@ -90,6 +96,35 @@ with request_context_scope({"user_id": "alice@acme.com", "conversation_id": "c-4
 > established by your authentication layer, never derived from model output or a tool result.
 > Deriving the principal from model output would let a prompt-injected agent choose its own
 > identity (a confused deputy). See [requirements.md](requirements.md).
+
+### Maturity levels and permission boundaries (user ∧ agent)
+
+The resolution order above is a maturity ladder. **Level 0** is the static `agent_id`
+fallback — every call authorized as that agent, enough for policies that don't depend on
+the end user (*"no agent may call a destructive tool"*). **Level 1** (recommended) is the
+request-scoped end user via `subject_scope`. **Level 2** adds the agent's *own* permission
+boundary on top of the user's grant, for when the agent must be more constrained than the
+human it acts for.
+
+`DualPrincipalMapper` evaluates **two** decisions per call — the end user's grant *and* the
+agent's boundary — as one batched, all-allow-or-block round trip, so a jailbroken agent can
+never exercise a permission its boundary denies even when the user holds it:
+
+```python
+from apparitor import AuthZENScanner, DualPrincipalMapper, ScannerConfig
+
+config = ScannerConfig(pdp_url="https://pdp.internal", agent_id="travel-bot")
+scanner = AuthZENScanner(config=config, mapper=DualPrincipalMapper(config))
+# per request: subject_scope(user) supplies the user leg; "travel-bot" is the boundary
+```
+
+Unlike an in-policy `forbid` (which works when one PDP holds all your policy), the dual
+mapper makes the boundary a **separate, separately-audited decision** that holds across
+engines and policy stores. The `mapper=` seam reaches the scanner, the NeMo rail, and the
+FastMCP `tools/call` and listing paths. The A2A executor and the FastMCP `resources/read` /
+`prompts/get` paths take a `boundary_subject` constructor argument instead; a full FastMCP
+deployment sets both. Either principal unresolvable fails closed, and dual calls always
+batch, so the opt-in ALLOW cache is not consulted.
 
 ## Mock PDP
 
