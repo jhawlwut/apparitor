@@ -76,8 +76,8 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
 
   # Attach the CycloneDX SBOM to the GitHub Release so it is durable and discoverable next to
-  # the release, not a transient build artifact. Tagged releases only — a workflow_dispatch
-  # run has no tag/release to attach to. Uses the first-party `gh` CLI (no extra action
+  # the release, not a transient build artifact. Tagged releases only (a workflow_dispatch run
+  # has no tag/release to attach to). Uses the first-party `gh` CLI (no extra action
   # dependency) with the minimum `contents: write` scope, isolated to this job.
   release-assets:
     name: Attach SBOM to Release
@@ -97,10 +97,18 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           asset="sbom/apparitor.cdx.json"
-          # Idempotent: upload to a release created from the UI, or create one if the tag was
+          # Idempotent: attach to a release created from the UI, or create one if the tag was
           # pushed on its own. --clobber replaces a prior SBOM on a re-run.
+          #
+          # Immutable releases reject asset changes after publish (HTTP 422). When the release
+          # already exists and is immutable, treat the upload as non-fatal: the SBOM stays
+          # available as the `sbom` workflow artifact and the release pipeline still succeeds.
+          # A release the workflow creates itself (tag pushed without a pre-created release)
+          # gets the SBOM at creation, before immutability locks it.
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$tag" "$asset" --clobber --repo "$GITHUB_REPOSITORY"
+            if ! gh release upload "$tag" "$asset" --clobber --repo "$GITHUB_REPOSITORY"; then
+              echo "::warning::Could not attach the SBOM to release $tag (likely an immutable release). The SBOM remains available as the 'sbom' workflow artifact. To attach it automatically, push the tag without pre-creating the release so this workflow creates the release with the SBOM."
+            fi
           else
             gh release create "$tag" "$asset" --generate-notes --repo "$GITHUB_REPOSITORY"
           fi
