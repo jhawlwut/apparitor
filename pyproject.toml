@@ -64,7 +64,7 @@ cedar = ["cedarpy>=4.8,<4.9"]
 # importing `apparitor.nemo` without it raises MissingDependencyError. NeMo is pre-1.0; the
 # floor guarantees the register_action / output_mapping / ActionResult APIs the adapter uses,
 # and the ceiling guards against a breaking minor (bump deliberately).
-nemo = ["nemoguardrails>=0.21,<0.23"]
+nemo = ["nemoguardrails>=0.21,<0.24"]
 # FastMCP server-middleware adapter (apparitor.fastmcp) — the MCP-boundary PEP. Optional so
 # the core stays standalone — importing `apparitor.fastmcp` without it raises
 # MissingDependencyError. Wider than the other extras' pins, deliberately: the middleware API
@@ -98,7 +98,7 @@ integration = ["testcontainers>=4"]
 # CycloneDX SBOM generator (see scripts/generate_sbom.sh). Pinned here — not in the shell
 # script — so Dependabot's pip ecosystem keeps it current, matching the repo's pinned-and-
 # maintained posture. Build-only tooling, like `build`/`twine`; never a runtime dependency.
-sbom = ["cyclonedx-bom==7.3.0"]
+sbom = ["cyclonedx-bom==7.3.1"]
 
 [project.urls]
 Homepage = "https://github.com/jhawlwut/apparitor"
