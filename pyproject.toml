@@ -62,20 +62,21 @@ cedar = ["cedarpy>=4.8,<4.9"]
 # NeMo Guardrails (NVIDIA) rail adapter (apparitor.nemo). The second agentic-firewall
 # integration alongside the LlamaFirewall scanner. Optional so the core stays standalone —
 # importing `apparitor.nemo` without it raises MissingDependencyError. NeMo is pre-1.0; the
-# floor guarantees the register_action / output_mapping / ActionResult APIs the adapter uses,
-# and the ceiling guards against a breaking minor (bump deliberately).
-nemo = ["nemoguardrails>=0.21,<0.23"]
+# floor guarantees the register_action / RailOutcome APIs the adapter uses (0.24 replaced the
+# earlier output_mapping contract, so older lines cannot be served by the same action), and
+# the ceiling guards against a breaking minor (bump deliberately).
+nemo = ["nemoguardrails>=0.24,<0.25"]
 # FastMCP server-middleware adapter (apparitor.fastmcp) — the MCP-boundary PEP. Optional so
 # the core stays standalone — importing `apparitor.fastmcp` without it raises
 # MissingDependencyError. Wider than the other extras' pins, deliberately: the middleware API
 # used (Middleware.on_call_tool, get_access_token, ToolError) is stable across 2.14 (the last
-# maintained 2.x line) and 3.x, and the `fastmcp` CI job matrix exercises both. 3.0.x is
-# excluded — it shipped middleware-dispatch bugs fixed in 3.0.1 and the matrix tests >=3.1.
-# NOTE: server composition (mount) names differ across the range — a child-mounted server is
-# seen as the parent's name on 2.14 but the child's on 3.x — so deployments under mounting
-# must pin `server_label` for stable policy keys (see apparitor.fastmcp). Drop the 2.x leg and
-# raise the floor when that line stops receiving maintenance.
-fastmcp = ["fastmcp>=2.14,!=3.0.*,<4"]
+# maintained 2.x line), 3.x and 4.x, and the `fastmcp` CI job matrix exercises all three. 3.0.x
+# is excluded — it shipped middleware-dispatch bugs fixed in 3.0.1 and the matrix tests >=3.1.
+# NOTE: the server name derived under composition (mount) is not guaranteed stable across the
+# range, so deployments under mounting must pin `server_label` for stable policy keys (see
+# apparitor.fastmcp). Drop the 2.x leg and raise the floor when that line stops receiving
+# maintenance.
+fastmcp = ["fastmcp>=2.14,!=3.0.*,<5"]
 # A2A agent-executor adapter (apparitor.a2a) — the agent-to-agent PEP. Optional so the core
 # stays standalone — importing `apparitor.a2a` without it raises MissingDependencyError. The
 # adapter needs only the base SDK (AgentExecutor/RequestContext); serving over HTTP needs the
@@ -98,7 +99,7 @@ integration = ["testcontainers>=4"]
 # CycloneDX SBOM generator (see scripts/generate_sbom.sh). Pinned here — not in the shell
 # script — so Dependabot's pip ecosystem keeps it current, matching the repo's pinned-and-
 # maintained posture. Build-only tooling, like `build`/`twine`; never a runtime dependency.
-sbom = ["cyclonedx-bom==7.3.0"]
+sbom = ["cyclonedx-bom==7.3.1"]
 
 [project.urls]
 Homepage = "https://github.com/jhawlwut/apparitor"

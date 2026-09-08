@@ -11,6 +11,7 @@ concurrent identity behave as they do over a real transport.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -55,6 +56,15 @@ def _server(guard: FastMCPAuthorizationMiddleware) -> FastMCP:
         return f"Hello {name}"
 
     return server
+
+
+def _mount(parent: FastMCP, child: FastMCP, namespace: str) -> None:
+    # 2.14 only knows ``prefix``; 3.x renamed it to ``namespace`` (keeping ``prefix`` as a
+    # deprecated alias) and 4.x dropped the alias.
+    if "namespace" in inspect.signature(parent.mount).parameters:
+        parent.mount(child, namespace=namespace)
+    else:
+        parent.mount(child, prefix=namespace)
 
 
 @contextmanager
@@ -335,7 +345,7 @@ async def test_mounted_server_uses_pinned_label_for_stable_key(make_config, resp
     def read_file(path: str) -> str:
         return path
 
-    parent.mount(child, prefix="files")
+    _mount(parent, child, "files")
     async with guard:
         with subject_scope(_ALICE):
             async with Client(parent) as client:
@@ -591,7 +601,7 @@ async def test_prompt_name_with_separator_refuses(make_config, respx_mock) -> No
 @pytest.mark.asyncio
 async def test_filter_listings_uses_call_time_keys_under_mount(make_config, respx_mock) -> None:
     # The listing filter must evaluate the SAME policy key the call gate will: the
-    # client-visible (mount-prefixed) tool name — on both supported FastMCP lines, which
+    # client-visible (mount-prefixed) tool name — on every supported FastMCP line; they
     # disagree about where that name lives on the listed Tool object.
     seen_ids: list[str] = []
 
@@ -614,7 +624,7 @@ async def test_filter_listings_uses_call_time_keys_under_mount(make_config, resp
     def read_file(path: str) -> str:
         return path
 
-    parent.mount(child, prefix="files")
+    _mount(parent, child, "files")
     async with guard:
         with subject_scope(_ALICE):
             async with Client(parent) as client:
