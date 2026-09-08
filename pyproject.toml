@@ -62,9 +62,10 @@ cedar = ["cedarpy>=4.8,<4.9"]
 # NeMo Guardrails (NVIDIA) rail adapter (apparitor.nemo). The second agentic-firewall
 # integration alongside the LlamaFirewall scanner. Optional so the core stays standalone —
 # importing `apparitor.nemo` without it raises MissingDependencyError. NeMo is pre-1.0; the
-# floor guarantees the register_action / output_mapping / ActionResult APIs the adapter uses,
-# and the ceiling guards against a breaking minor (bump deliberately).
-nemo = ["nemoguardrails>=0.21,<0.23"]
+# floor guarantees the register_action / RailOutcome APIs the adapter uses (0.24 replaced the
+# earlier output_mapping contract, so older lines cannot be served by the same action), and
+# the ceiling guards against a breaking minor (bump deliberately).
+nemo = ["nemoguardrails>=0.24,<0.25"]
 # FastMCP server-middleware adapter (apparitor.fastmcp) — the MCP-boundary PEP. Optional so
 # the core stays standalone — importing `apparitor.fastmcp` without it raises
 # MissingDependencyError. Wider than the other extras' pins, deliberately: the middleware API

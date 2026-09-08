@@ -211,7 +211,7 @@ result = await firewall.scan_async(assistant_message)  # ALLOW / BLOCK / HUMAN_I
 ```
 
 **NeMo Guardrails rail** (`pip install "apparitor[nemo]"`). Registers as a custom action; the
-rail refuses denied tool calls, fail-closed under NeMo's mapping. The rail flow lives in your
+rail refuses denied tool calls, fail-closed as a NeMo `RailOutcome`. The rail flow lives in your
 NeMo config (see the module docstring). Exercised in [`examples/three-peps/`](examples/three-peps/).
 
 ```python

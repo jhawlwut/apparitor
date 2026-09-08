@@ -1,10 +1,10 @@
-"""NeMo Guardrails rail adapter tests — verdict → allow/block(refuse) mapping and action wiring.
+"""NeMo Guardrails rail adapter tests — verdict → ``RailOutcome`` mapping and action wiring.
 
 Requires nemoguardrails (the adapter's only hard dependency); skipped automatically when it is
 not installed (a dedicated CI job installs ``[nemo]`` to run these). The PDP is mocked with
 respx, exactly like the scanner/engine tests — the firewall-free engine does the real work, so
-these assert only the NeMo boundary: the ``allowed`` return value, the ``output_mapping``
-fail-closed semantics, the surfaced verdict context, and the action/dispatcher wiring.
+these assert only the NeMo boundary: the ``RailOutcome`` decision and its fail-closed mapping,
+the surfaced verdict metadata, the action/dispatcher wiring, and the documented Colang flow.
 """
 
 from __future__ import annotations
@@ -17,27 +17,41 @@ pytestmark = pytest.mark.unit
 
 pytest.importorskip("nemoguardrails")
 
+from nemoguardrails import LLMRails, RailsConfig  # noqa: E402
 from nemoguardrails.actions.action_dispatcher import ActionDispatcher  # noqa: E402
-from nemoguardrails.actions.actions import ActionResult  # noqa: E402
-from nemoguardrails.actions.output_mapping import is_output_blocked  # noqa: E402
+from nemoguardrails.actions.rail_outcome import RailDecision, RailOutcome  # noqa: E402
 
 from apparitor import Subject  # noqa: E402
 from apparitor.mapping import subject_scope  # noqa: E402
-from apparitor.nemo import NeMoAuthorizationRails, authorization_blocks  # noqa: E402
+from apparitor.nemo import NeMoAuthorizationRails  # noqa: E402
 
 _EVAL_URL = "http://pdp.test/access/v1/evaluation"
 
+# The wiring from the module docstring, plus a test-only confirmation on the allow path so
+# the flow completes without an LLM.
+_COLANG = """
+define bot refuse to authorize tool call
+  "I can't authorize that action."
 
-# --- output_mapping (the allow/block boundary) --------------------------------------
+define bot confirm tool call
+  "Tool call authorized."
 
+define flow authorize tool calls
+  $result = execute authorize_tool_calls(tool_calls=$tool_calls)
+  if $result.is_blocked
+    bot refuse to authorize tool call
+    stop
+  bot confirm tool call
+  stop
+"""
 
-@pytest.mark.parametrize(
-    ("value", "blocked"),
-    [(True, False), (False, True), (None, True), ("allow", True), (0, True), (1, True)],
-)
-def test_output_mapping_fails_closed(value: object, blocked: bool) -> None:
-    # Only an explicit True (an allowed verdict) passes; anything else refuses.
-    assert authorization_blocks(value) is blocked
+_RAILS_YAML = """
+models: []
+rails:
+  input:
+    flows:
+      - authorize tool calls
+"""
 
 
 def test_constructor_requires_pdp_url_or_config() -> None:
@@ -53,10 +67,13 @@ async def test_action_allows_authorized_call(make_config, make_openai_call, resp
     respx_mock.post(_EVAL_URL).respond(json={"decision": True})
     async with NeMoAuthorizationRails(config=make_config()) as guard:
         result = await guard.action(tool_calls=[make_openai_call("read_file", path="/tmp")])
-    assert isinstance(result, ActionResult)
-    assert result.return_value is True
-    assert result.context_updates["tool_authorization_verdict"] == "allow"
-    assert is_output_blocked(result.return_value, guard.action) is False
+    assert isinstance(result, RailOutcome)
+    assert result.decision is RailDecision.ALLOW
+    assert result.is_blocked is False
+    assert result.metadata["tool_authorization_verdict"] == "allow"
+    assert result.metadata["tool_authorization_status"] == "success"
+    # Plain-typed evidence: a host can serialise it into a refusal message or a log line.
+    json.dumps(result.metadata)
 
 
 @pytest.mark.asyncio
@@ -64,9 +81,11 @@ async def test_action_refuses_unauthorized_call(make_config, make_openai_call, r
     respx_mock.post(_EVAL_URL).respond(json={"decision": False})
     async with NeMoAuthorizationRails(config=make_config()) as guard:
         result = await guard.action(tool_calls=[make_openai_call("delete_table")])
-    assert result.return_value is False
-    assert result.context_updates["tool_authorization_verdict"] == "block"
-    assert is_output_blocked(result.return_value, guard.action) is True
+    assert result.decision is RailDecision.BLOCK
+    assert result.is_blocked is True
+    # The rail's own decision, not a block NeMo synthesised because the action raised.
+    assert result.failed is False
+    assert result.metadata["tool_authorization_verdict"] == "block"
 
 
 @pytest.mark.asyncio
@@ -75,9 +94,8 @@ async def test_action_fails_closed_on_pdp_error(make_config, make_openai_call, r
     respx_mock.post(_EVAL_URL).respond(status_code=503)
     async with NeMoAuthorizationRails(config=make_config(max_retries=0)) as guard:
         result = await guard.action(tool_calls=[make_openai_call("read")])
-    assert result.return_value is False
-    assert result.context_updates["tool_authorization_status"] == "error"
-    assert is_output_blocked(result.return_value, guard.action) is True
+    assert result.is_blocked is True
+    assert result.metadata["tool_authorization_status"] == "error"
 
 
 @pytest.mark.asyncio
@@ -88,9 +106,8 @@ async def test_action_refuses_on_human_review(make_config, make_openai_call, res
     cfg = make_config(max_retries=0, on_error="human_review")
     async with NeMoAuthorizationRails(config=cfg) as guard:
         result = await guard.action(tool_calls=[make_openai_call("read")])
-    assert result.return_value is False
-    assert result.context_updates["tool_authorization_verdict"] == "human_review"
-    assert is_output_blocked(result.return_value, guard.action) is True
+    assert result.is_blocked is True
+    assert result.metadata["tool_authorization_verdict"] == "human_review"
 
 
 @pytest.mark.asyncio
@@ -105,10 +122,9 @@ async def test_action_refuses_on_review_predicate_escalation(
     )
     async with guard:
         result = await guard.action(tool_calls=[make_openai_call("transfer_funds")])
-    assert result.return_value is False
-    assert result.context_updates["tool_authorization_verdict"] == "human_review"
-    assert result.context_updates["tool_authorization_status"] == "success"
-    assert is_output_blocked(result.return_value, guard.action) is True
+    assert result.is_blocked is True
+    assert result.metadata["tool_authorization_verdict"] == "human_review"
+    assert result.metadata["tool_authorization_status"] == "success"
 
 
 @pytest.mark.asyncio
@@ -117,8 +133,8 @@ async def test_action_skips_when_no_tool_calls(make_config, respx_mock) -> None:
     route = respx_mock.post(_EVAL_URL)
     async with NeMoAuthorizationRails(config=make_config()) as guard:
         result = await guard.action(tool_calls=None)
-    assert result.return_value is True
-    assert result.context_updates["tool_authorization_verdict"] == "skip"
+    assert result.is_blocked is False
+    assert result.metadata["tool_authorization_verdict"] == "skip"
     assert route.call_count == 0
 
 
@@ -130,9 +146,9 @@ async def test_action_reads_tool_calls_from_context(
     route = respx_mock.post(_EVAL_URL).respond(json={"decision": True})
     async with NeMoAuthorizationRails(config=make_config()) as guard:
         result = await guard.action(context={"tool_calls": [make_openai_call("read")]})
-    assert result.return_value is True
+    assert result.is_blocked is False
     # "allow" (not "skip") proves the call came from context and the PDP was consulted.
-    assert result.context_updates["tool_authorization_verdict"] == "allow"
+    assert result.metadata["tool_authorization_verdict"] == "allow"
     assert route.call_count == 1
 
 
@@ -165,15 +181,52 @@ async def test_action_registers_and_executes_via_dispatcher(
             guard.action_name, {"tool_calls": [make_openai_call("delete_table")]}
         )
     assert status == "success"
-    assert isinstance(result, ActionResult)
-    assert is_output_blocked(result.return_value, guard.action) is True
+    assert isinstance(result, RailOutcome)
+    assert result.is_blocked is True
 
 
 @pytest.mark.asyncio
 async def test_register_wires_action_onto_llmrails(make_config) -> None:
-    from nemoguardrails import LLMRails, RailsConfig
-
     rails = LLMRails(RailsConfig.from_content(yaml_content="models: []"))
     async with NeMoAuthorizationRails(config=make_config()) as guard:
         assert guard.register(rails) is rails
         assert rails.runtime.action_dispatcher.get_action(guard.action_name) is guard.action
+
+
+def _rails_with_flow(guard: NeMoAuthorizationRails) -> LLMRails:
+    rails = LLMRails(RailsConfig.from_content(colang_content=_COLANG, yaml_content=_RAILS_YAML))
+    return guard.register(rails)
+
+
+def _messages(tool_call: dict[str, object]) -> list[dict[str, object]]:
+    # NeMo has no built-in tool-calls key: the host injects them via a context message.
+    return [
+        {"role": "context", "content": {"tool_calls": [tool_call]}},
+        {"role": "user", "content": "run it"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_documented_flow_refuses_denied_call(
+    make_config, make_openai_call, respx_mock
+) -> None:
+    # The Colang flow from the module docstring, driven end-to-end through LLMRails: a denied
+    # verdict must reach `$result.is_blocked` and stop the turn before any LLM is consulted.
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": False})
+    async with NeMoAuthorizationRails(config=make_config()) as guard:
+        rails = _rails_with_flow(guard)
+        reply = await rails.generate_async(messages=_messages(make_openai_call("delete_table")))
+    assert reply["content"] == "I can't authorize that action."
+    assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_documented_flow_passes_allowed_call(
+    make_config, make_openai_call, respx_mock
+) -> None:
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": True})
+    async with NeMoAuthorizationRails(config=make_config()) as guard:
+        rails = _rails_with_flow(guard)
+        reply = await rails.generate_async(messages=_messages(make_openai_call("read_file")))
+    assert reply["content"] == "Tool call authorized."
+    assert route.call_count == 1
