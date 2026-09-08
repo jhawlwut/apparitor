@@ -13,6 +13,10 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 - Install instructions now point at PyPI (`pip install apparitor`) now that the `0.1.x`
   line is published, replacing the previous install-from-source guidance.
+- **FastMCP middleware supports fastmcp 4.x.** The `[fastmcp]` extra now accepts
+  `fastmcp>=2.14,!=3.0.*,<5`, and the `fastmcp` / `gateway-demo` CI jobs exercise 2.14, 3.x
+  and 4.x. No adapter change was needed: the middleware hooks, `get_access_token` and the
+  `ToolError` / `ResourceError` / `PromptError` surfaces are unchanged in 4.0.
 
 ## [0.1.1] - 2026-06-16
 

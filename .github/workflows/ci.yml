@@ -158,15 +158,15 @@ jobs:
 
   # The FastMCP middleware adapter's only hard dependency is fastmcp, so its end-to-end test
   # runs in a dedicated job that installs the extra — keeping it out of the default [dev] run,
-  # like the scanner, cedar and nemo jobs. The matrix exercises both supported lines (the last
-  # maintained 2.x and current 3.x); drop the 2.x leg when the pin floor moves to 3.
+  # like the scanner, cedar and nemo jobs. The matrix exercises every supported line (the last
+  # maintained 2.x, 3.x and 4.x); drop the 2.x leg when the pin floor moves to 3.
   fastmcp:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        fastmcp-version: ["fastmcp==2.14.*", "fastmcp>=3.1,<4"]
+        fastmcp-version: ["fastmcp==2.14.*", "fastmcp>=3.1,<4", "fastmcp>=4,<5"]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -204,7 +204,7 @@ jobs:
           APPARITOR_DEMO_REQUIRE_ALL: "1"
         run: python examples/three-peps/demo.py
 
-  # Proves the proxy chokepoint works on both supported fastmcp lines: the denied tool
+  # Proves the proxy chokepoint works on every supported fastmcp line: the denied tool
   # is hidden from tools/list, allowed calls reach the upstream, denied calls do not.
   gateway-demo:
     runs-on: ubuntu-latest
@@ -212,7 +212,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fastmcp-version: ["fastmcp==2.14.*", "fastmcp>=3.1,<4"]
+        fastmcp-version: ["fastmcp==2.14.*", "fastmcp>=3.1,<4", "fastmcp>=4,<5"]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
