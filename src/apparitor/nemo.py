@@ -10,8 +10,8 @@ provides — same engine, same mapper, same fail-closed semantics, same request-
 resolution (``current_subject`` / ``current_request_context`` / ``config.agent_id``). Only the
 boundary differs: the verdict is mapped onto NeMo's allow / block(refuse) model.
 
-The action returns a NeMo ``RailOutcome`` — the engine-neutral rail verdict every NeMo engine
-(Colang flows, parallel and streaming rails, IORails) gates on. The mapping is fail-closed:
+The action returns a NeMo ``RailOutcome``, the engine-neutral rail verdict NeMo's runtimes gate
+on. The mapping is fail-closed:
 only ``ALLOW`` / ``SKIP`` with a non-error status becomes ``RailOutcome.allow()``; ``BLOCK``,
 ``HUMAN_REVIEW`` (refused; escalation is a host concern) and any ``status=ERROR`` become
 ``RailOutcome.block()``. The richer verdict (verdict / status / reason / score) rides along in
@@ -19,9 +19,10 @@ only ``ALLOW`` / ``SKIP`` with a non-error status becomes ``RailOutcome.allow()`
 it; the decision itself is never derived from the metadata.
 
 Register the action on an ``LLMRails`` (before generating), then reference the flow as a rail.
-NeMo has no built-in "tool calls" context key, so the host passes the agent's proposed tool
-calls into the action explicitly as ``$tool_calls`` (or sets them in the rails context under
-``tool_calls``); how you obtain them depends on your agent integration. Wiring::
+NeMo has no built-in "tool calls" context key, so the host sets the agent's proposed tool calls
+in the rails context under ``tool_calls`` (for example via a ``{"role": "context", ...}``
+message); the action reads them from there and SKIPs (allows) a turn that carries none. How
+you obtain them depends on your agent integration. Wiring::
 
     from nemoguardrails import LLMRails, RailsConfig
 
@@ -41,10 +42,15 @@ calls into the action explicitly as ``$tool_calls`` (or sets them in the rails c
       "I can't authorize that action."
 
     define flow authorize tool calls
-      $result = execute authorize_tool_calls(tool_calls=$tool_calls)
+      $result = execute authorize_tool_calls()
       if $result.is_blocked
         bot refuse to authorize tool call
         stop
+
+Passing the calls explicitly (``execute authorize_tool_calls(tool_calls=$tool_calls)``) works
+too, but then ``$tool_calls`` must be set on every turn: Colang 1 hands an unset variable to
+the action as the literal string ``"$tool_calls"``, which fails the check (closed) as a NeMo
+internal error rather than SKIPping.
 
 A ``HUMAN_REVIEW`` verdict refuses too (NeMo has no native human-in-the-loop pause); the
 verdict is surfaced in the outcome's metadata, so a host builds escalation by branching on it,

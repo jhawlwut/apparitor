@@ -37,9 +37,32 @@ define bot confirm tool call
   "Tool call authorized."
 
 define flow authorize tool calls
-  $result = execute authorize_tool_calls(tool_calls=$tool_calls)
+  $result = execute authorize_tool_calls()
   if $result.is_blocked
     bot refuse to authorize tool call
+    stop
+  bot confirm tool call
+  stop
+"""
+
+# The docstring's escalation idiom: branch on the verdict surfaced in the outcome metadata.
+_COLANG_ESCALATE = """
+define bot refuse to authorize tool call
+  "I can't authorize that action."
+
+define bot escalate tool call
+  "Escalating to a human."
+
+define bot confirm tool call
+  "Tool call authorized."
+
+define flow authorize tool calls
+  $result = execute authorize_tool_calls()
+  if $result.is_blocked
+    if $result.metadata["tool_authorization_verdict"] == "human_review"
+      bot escalate tool call
+    else
+      bot refuse to authorize tool call
     stop
   bot confirm tool call
   stop
@@ -70,10 +93,15 @@ async def test_action_allows_authorized_call(make_config, make_openai_call, resp
     assert isinstance(result, RailOutcome)
     assert result.decision is RailDecision.ALLOW
     assert result.is_blocked is False
-    assert result.metadata["tool_authorization_verdict"] == "allow"
-    assert result.metadata["tool_authorization_status"] == "success"
-    # Plain-typed evidence: a host can serialise it into a refusal message or a log line.
-    json.dumps(result.metadata)
+    assert result.metadata == {
+        "tool_authorization_verdict": "allow",
+        "tool_authorization_status": "success",
+        "tool_authorization_reason": result.reason,
+        "tool_authorization_score": 0.0,
+    }
+    # Plain-typed evidence a host can serialise or compare in Colang: the str-valued enums
+    # must be unwrapped (Verdict.ALLOW == "allow" would still hold, so pin the types).
+    assert all(type(value) in (str, float) for value in result.metadata.values())
 
 
 @pytest.mark.asyncio
@@ -86,6 +114,8 @@ async def test_action_refuses_unauthorized_call(make_config, make_openai_call, r
     # The rail's own decision, not a block NeMo synthesised because the action raised.
     assert result.failed is False
     assert result.metadata["tool_authorization_verdict"] == "block"
+    assert result.metadata["tool_authorization_score"] == 1.0
+    assert result.metadata["tool_authorization_reason"] == result.reason
 
 
 @pytest.mark.asyncio
@@ -125,6 +155,7 @@ async def test_action_refuses_on_review_predicate_escalation(
     assert result.is_blocked is True
     assert result.metadata["tool_authorization_verdict"] == "human_review"
     assert result.metadata["tool_authorization_status"] == "success"
+    assert result.metadata["tool_authorization_score"] == 0.5
 
 
 @pytest.mark.asyncio
@@ -193,8 +224,8 @@ async def test_register_wires_action_onto_llmrails(make_config) -> None:
         assert rails.runtime.action_dispatcher.get_action(guard.action_name) is guard.action
 
 
-def _rails_with_flow(guard: NeMoAuthorizationRails) -> LLMRails:
-    rails = LLMRails(RailsConfig.from_content(colang_content=_COLANG, yaml_content=_RAILS_YAML))
+def _rails_with_flow(guard: NeMoAuthorizationRails, colang: str = _COLANG) -> LLMRails:
+    rails = LLMRails(RailsConfig.from_content(colang_content=colang, yaml_content=_RAILS_YAML))
     return guard.register(rails)
 
 
@@ -230,3 +261,31 @@ async def test_documented_flow_passes_allowed_call(
         reply = await rails.generate_async(messages=_messages(make_openai_call("read_file")))
     assert reply["content"] == "Tool call authorized."
     assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_documented_flow_passes_turn_without_tool_calls(make_config, respx_mock) -> None:
+    # A turn with nothing to authorize must SKIP through the flow (no PDP trip), not land in
+    # NeMo's internal-error envelope.
+    route = respx_mock.post(_EVAL_URL).respond(json={"decision": False})
+    async with NeMoAuthorizationRails(config=make_config()) as guard:
+        rails = _rails_with_flow(guard)
+        reply = await rails.generate_async(messages=[{"role": "user", "content": "hello"}])
+    assert reply["content"] == "Tool call authorized."
+    assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_documented_flow_escalates_human_review_via_metadata(
+    make_config, make_openai_call, respx_mock
+) -> None:
+    # The escalation idiom from the docstring: Colang reads the verdict out of the outcome
+    # metadata (a subscript on an attribute of the action's return value).
+    respx_mock.post(_EVAL_URL).respond(json={"decision": True, "context": {"step_up": True}})
+    guard = NeMoAuthorizationRails(
+        config=make_config(), review_predicate=lambda ctx: bool(ctx.get("step_up"))
+    )
+    async with guard:
+        rails = _rails_with_flow(guard, _COLANG_ESCALATE)
+        reply = await rails.generate_async(messages=_messages(make_openai_call("transfer_funds")))
+    assert reply["content"] == "Escalating to a human."

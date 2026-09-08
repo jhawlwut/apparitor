@@ -22,12 +22,15 @@ All notable changes to this project are documented here. The format follows
   `ActionResult.context_updates` to `RailOutcome.metadata`, and Colang flows change from
   `$allowed = execute authorize_tool_calls(...)` / `if not $allowed` to
   `$result = execute authorize_tool_calls(...)` / `if $result.is_blocked` (see the module
-  docstring). The `authorization_blocks` helper is removed and the `[nemo]` extra is now
-  `nemoguardrails>=0.24,<0.25`.
+  docstring). The `[nemo]` extra is now `nemoguardrails>=0.24,<0.25`.
 - **FastMCP middleware supports fastmcp 4.x.** The `[fastmcp]` extra now accepts
   `fastmcp>=2.14,!=3.0.*,<5`, and the `fastmcp` / `gateway-demo` CI jobs exercise 2.14, 3.x
   and 4.x. No adapter change was needed: the middleware hooks, `get_access_token` and the
   `ToolError` / `ResourceError` / `PromptError` surfaces are unchanged in 4.0.
+
+### Removed
+- `apparitor.nemo.authorization_blocks`: NeMo 0.24 dropped the `output_mapping` hook it
+  existed for; the fail-closed allow/block mapping now lives in the returned `RailOutcome`.
 
 ## [0.1.1] - 2026-06-16
 
