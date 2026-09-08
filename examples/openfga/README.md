@@ -70,14 +70,16 @@ The store id is created at runtime, so it goes into the evaluation path:
 ```python
 from apparitor import AuthZENScanner, ScannerConfig
 
-scanner = AuthZENScanner(config=ScannerConfig(
-    pdp_url="http://127.0.0.1:8080",
-    allow_insecure_pdp=True,           # local dev, plain HTTP
-    agent_id="demo-agent",
-    action_name="can_execute",         # the OpenFGA relation
-    evaluation_path=f"/stores/{store_id}/access/v1/evaluation",
-    batch_path=f"/stores/{store_id}/access/v1/evaluations",
-))
+scanner = AuthZENScanner(
+    config=ScannerConfig(
+        pdp_url="http://127.0.0.1:8080",
+        allow_insecure_pdp=True,  # local dev, plain HTTP
+        agent_id="demo-agent",
+        action_name="can_execute",  # the OpenFGA relation
+        evaluation_path=f"/stores/{store_id}/access/v1/evaluation",
+        batch_path=f"/stores/{store_id}/access/v1/evaluations",
+    )
+)
 ```
 
 The Docker-gated integration test in
