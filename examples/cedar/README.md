@@ -73,11 +73,13 @@ every entry is permitted, then tears down.
 ```python
 from apparitor import AuthZENScanner, ScannerConfig
 
-scanner = AuthZENScanner(config=ScannerConfig(
-    pdp_url="http://127.0.0.1:8080",
-    allow_insecure_pdp=True,   # local dev, plain HTTP
-    agent_id="demo-agent",
-))
+scanner = AuthZENScanner(
+    config=ScannerConfig(
+        pdp_url="http://127.0.0.1:8080",
+        allow_insecure_pdp=True,  # local dev, plain HTTP
+        agent_id="demo-agent",
+    )
+)
 ```
 
 The Docker-gated integration test in
@@ -100,13 +102,15 @@ pip install 'apparitor[cedar]'
 ```python
 from apparitor import AuthZENScanner, ScannerConfig
 
-scanner = AuthZENScanner(config=ScannerConfig(
-    backend="cedar",                          # evaluate Cedar in-process via cedarpy
-    agent_id="demo-agent",
-    cedar_policies_path="policies.cedar",     # your Cedar policy set
-    cedar_entities_path="entities.json",      # your entities
-    # cedar_schema_path="schema.json",        # optional; enables schema validation
-))
+scanner = AuthZENScanner(
+    config=ScannerConfig(
+        backend="cedar",  # evaluate Cedar in-process via cedarpy
+        agent_id="demo-agent",
+        cedar_policies_path="policies.cedar",  # your Cedar policy set
+        cedar_entities_path="entities.json",  # your entities
+        # cedar_schema_path="schema.json",        # optional; enables schema validation
+    )
+)
 ```
 
 Paths are resolved against the process working directory, so this snippet only finds the files
