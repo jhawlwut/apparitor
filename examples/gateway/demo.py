@@ -49,8 +49,8 @@ from apparitor import ScannerConfig
 from apparitor.fastmcp import FastMCPAuthorizationMiddleware
 
 # ── Version-compatible proxy factory ────────────────────────────────────────────
-# FastMCP.as_proxy is deprecated on 3.x (emits FastMCPDeprecationWarning); use the
-# replacement create_proxy on 3.x and the class method on 2.x.
+# FastMCP.as_proxy is deprecated on 3.x (emits FastMCPDeprecationWarning) and gone on 4.x;
+# use its replacement create_proxy from 3.x on and the class method on 2.x.
 # Regex avoids int() on pre-release suffixes like "3.2rc1".
 _ver_match = re.match(r"\d+", _fmcp.__version__)
 assert _ver_match, "fastmcp.__version__ must start with a digit"
@@ -58,7 +58,7 @@ _major = int(_ver_match.group())
 if _major >= 3:
     from fastmcp.server import create_proxy as _create_proxy
 else:
-    _create_proxy = _fmcp.FastMCP.as_proxy  # type: ignore[assignment]  # 2.x spelling (deprecated alias on 3.x)
+    _create_proxy = _fmcp.FastMCP.as_proxy  # type: ignore[assignment]  # 2.x spelling (deprecated on 3.x, gone on 4.x)
 
 # ── Load the mock PDP without making examples/ a package ────────────────────────
 _MOCK_PDP_PATH = Path(__file__).resolve().parent.parent / "mock_pdp" / "mock_pdp.py"
