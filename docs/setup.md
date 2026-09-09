@@ -171,9 +171,11 @@ construction. See [`examples/cedar/`](../examples/cedar/) for a full worked exam
 
 ## OPA / Rego (policy-as-code)
 
-OPA is reachable over AuthZEN via a gateway (e.g. [`kanywst/opa-authzen`](https://github.com/kanywst/opa-authzen)).
-The [`examples/opa/`](../examples/opa/) example runs OPA locally behind such a gateway
-with sample Rego policies.
+OPA is reachable over AuthZEN via a gateway, or by running an OPA build that serves the
+AuthZEN endpoints natively (e.g.
+[`kanywst/opa-authzen-plugin`](https://github.com/kanywst/opa-authzen-plugin)). The
+[`examples/opa/`](../examples/opa/) example runs OPA locally behind such a gateway with
+sample Rego policies.
 
 ### OPA native backend (`backend="opa"`)
 
@@ -210,8 +212,8 @@ local/CI set.
 
 ## Other PDPs
 
-OPA (via [`kanywst/opa-authzen`](https://github.com/kanywst/opa-authzen)), Cerbos, and
-Topaz also expose AuthZEN endpoints; any AuthZEN 1.0 PDP works. Resource and subject
-**type vocabularies differ** between PDPs (OpenFGA's `type:id` relations vs Cedar
+OPA (via [`kanywst/opa-authzen-plugin`](https://github.com/kanywst/opa-authzen-plugin)),
+Cerbos, and Topaz also expose AuthZEN endpoints; any AuthZEN 1.0 PDP works. Resource and
+subject **type vocabularies differ** between PDPs (OpenFGA's `type:id` relations vs Cedar
 entities/actions vs OPA's free-form input). Adapt the `ToolCallMapper` to your PDP's
 schema.
