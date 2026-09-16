@@ -8,7 +8,7 @@ no network.
 | Enforcement point | Surface | Verdict mapping |
 | --- | --- | --- |
 | LlamaFirewall scanner (`AuthZENScanner`) | firewall scan, assistant role | `ScanDecision.ALLOW` / `BLOCK` |
-| NeMo Guardrails rail (`NeMoAuthorizationRails`) | custom action + `output_mapping` | `allowed` bool (fail-closed) |
+| NeMo Guardrails rail (`NeMoAuthorizationRails`) | custom action | `RailOutcome` allow / block (fail-closed) |
 | FastMCP middleware (`FastMCPAuthorizationMiddleware`) | server-side `tools/call` hook | execute / `ToolError` refusal |
 
 The policy is a deny-override guardrail: `forbid` on `destructive == true` beats every
@@ -47,5 +47,5 @@ Notes that keep the demo honest:
   with no OAuth server. On a network transport, leave it off and let the validated token
   supply the subject.
 - The NeMo lane invokes the registered action directly rather than through an `LLMRails`
-  flow. The verdict contract (`return_value` + `output_mapping`) is identical either way,
+  flow. The verdict contract (the returned `RailOutcome`) is identical either way,
   and the demo needs no LLM.

@@ -81,11 +81,13 @@ every entry is permitted, then tears down.
 ```python
 from apparitor import AuthZENScanner, ScannerConfig
 
-scanner = AuthZENScanner(config=ScannerConfig(
-    pdp_url="http://127.0.0.1:8080",
-    allow_insecure_pdp=True,   # local dev, plain HTTP
-    agent_id="demo-agent",
-))
+scanner = AuthZENScanner(
+    config=ScannerConfig(
+        pdp_url="http://127.0.0.1:8080",
+        allow_insecure_pdp=True,  # local dev, plain HTTP
+        agent_id="demo-agent",
+    )
+)
 ```
 
 The Docker-gated integration test in
@@ -107,15 +109,16 @@ then select the backend by config:
 ```python
 from apparitor import AuthZENScanner, ScannerConfig
 
-scanner = AuthZENScanner(config=ScannerConfig(
-    backend="opa",                              # talk OPA's /v1/data API directly
-    pdp_url="http://127.0.0.1:8181",
-    allow_insecure_pdp=True,                    # local dev, plain HTTP
-    agent_id="demo-agent",
-    opa_decision_path="apparitor/authz/allow",  # the boolean Rego rule to query; set this
-                                                # to match your own policy's package + rule
-
-))
+scanner = AuthZENScanner(
+    config=ScannerConfig(
+        backend="opa",  # talk OPA's /v1/data API directly
+        pdp_url="http://127.0.0.1:8181",
+        allow_insecure_pdp=True,  # local dev, plain HTTP
+        agent_id="demo-agent",
+        # the boolean Rego rule to query; match your own policy's package + rule
+        opa_decision_path="apparitor/authz/allow",
+    )
+)
 ```
 
 The backend sends the AuthZEN tuple as OPA's policy `input` and reads the boolean

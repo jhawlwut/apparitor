@@ -28,10 +28,10 @@ Subject resolution (first match wins; no match refuses the call):
 The default mapper is :class:`~apparitor.mapping.MCPResourceMapper`, so the resource id is
 server-scoped (``"<server>/<tool>"``): ``server_label`` if given, else the name of the
 FastMCP server the call arrived on. Renaming the server changes resource ids (and
-ALLOW-cache keys), and under server composition (``mount``) the derived name is not stable
-across the supported FastMCP range — a child-mounted server is seen as the parent's name on
-2.14 but the child's on 3.x. **Pin ``server_label`` whenever the server may be renamed or
-mounted** so policy keys stay stable.
+ALLOW-cache keys), and under server composition (``mount``) the derived name is not
+guaranteed stable across the supported FastMCP range (2.14 through 4.x). **Pin
+``server_label`` whenever the server may be renamed or mounted** so policy keys stay
+stable.
 
 Verdict mapping is fail-closed: only a clean ``ALLOW`` reaches the tool. ``BLOCK``,
 ``HUMAN_REVIEW`` (MCP has no human-in-the-loop pause; refusal is surfaced distinctly so a
@@ -462,10 +462,10 @@ class FastMCPAuthorizationMiddleware(Middleware):  # type: ignore[misc]  # fastm
 def _listed_name(tool: Any) -> str:
     """The client-visible (mount-prefixed) tool name, as ``on_call_tool`` will receive it.
 
-    The two supported FastMCP lines disagree under composition: 2.14 keeps ``Tool.name``
-    unprefixed and puts the prefixed name in ``Tool.key``, while 3.x prefixes ``Tool.name``
-    (its ``key`` is a ``tool:...@`` component locator). Using the wrong one would make the
-    listing filter and the call gate evaluate different policy keys.
+    The supported FastMCP lines disagree under composition: 2.14 keeps ``Tool.name``
+    unprefixed and puts the prefixed name in ``Tool.key``, while 3.x and 4.x prefix
+    ``Tool.name`` (their ``key`` is a ``tool:...@`` component locator). Using the wrong one
+    would make the listing filter and the call gate evaluate different policy keys.
     """
     key = getattr(tool, "key", None)
     if isinstance(key, str) and key and ":" not in key:

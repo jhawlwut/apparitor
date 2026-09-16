@@ -203,13 +203,15 @@ and LangChain shapes are normalised automatically; an unrecognised shape blocks 
 from llamafirewall import LlamaFirewall, Role
 from apparitor import AuthZENScanner, ScannerConfig
 
-scanner = AuthZENScanner(config=ScannerConfig(pdp_url="https://pdp.internal", agent_id="travel-bot"))
+scanner = AuthZENScanner(
+    config=ScannerConfig(pdp_url="https://pdp.internal", agent_id="travel-bot")
+)
 firewall = LlamaFirewall(scanners={Role.ASSISTANT: [scanner]})
-result = await firewall.scan_async(assistant_message)   # ALLOW / BLOCK / HUMAN_IN_THE_LOOP
+result = await firewall.scan_async(assistant_message)  # ALLOW / BLOCK / HUMAN_IN_THE_LOOP
 ```
 
 **NeMo Guardrails rail** (`pip install "apparitor[nemo]"`). Registers as a custom action; the
-rail refuses denied tool calls, fail-closed under NeMo's mapping. The rail flow lives in your
+rail refuses denied tool calls, fail-closed as a NeMo `RailOutcome`. The rail flow lives in your
 NeMo config (see the module docstring). Exercised in [`examples/three-peps/`](examples/three-peps/).
 
 ```python
@@ -270,8 +272,8 @@ Prometheus/OpenTelemetry, or `NoopMetrics()` to disable.
 
 ```python
 m = scanner.metrics
-m.latency_histogram()       # [(le_seconds, cumulative_count), …, (+Inf, n)]
-m.decisions                 # {("allow", "success"): 12, ("block", "error"): 1}
+m.latency_histogram()  # [(le_seconds, cumulative_count), …, (+Inf, n)]
+m.decisions  # {("allow", "success"): 12, ("block", "error"): 1}
 ```
 
 Each decision also emits one structured audit line (verdict, status, subject id,

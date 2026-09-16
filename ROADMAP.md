@@ -110,7 +110,7 @@ backends called out under [At a glance](#at-a-glance).
 
 - ✅ **NeMo Guardrails** (NVIDIA) rail: binds the same `AuthorizationEngine` behind a NeMo
   custom action so a NeMo-guarded agent gets the identical authorization check. The verdict
-  maps onto NeMo's allow / block(refuse) model via `output_mapping` (fail-closed). Adapter,
+  maps onto NeMo's allow / block(refuse) model as a `RailOutcome` (fail-closed). Adapter,
   not a re-implementation (`apparitor.nemo`, optional `[nemo]` extra).
 - ✅ **FastMCP server middleware**, the first MCP-boundary PEP: every `tools/call` is
   authorized server-side before the tool executes, with the subject taken from the

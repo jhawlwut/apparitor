@@ -103,13 +103,13 @@ async def lane_nemo() -> dict[str, str] | Exception:
     results: dict[str, str] = {}
     async with NeMoAuthorizationRails(config=_config()) as rails:
         for name, args, _ in _CASES:
-            action_result = await rails.action(tool_calls=[_openai_call(name, args)])
-            ctx = action_result.context_updates
-            if action_result.return_value is True:
+            outcome = await rails.action(tool_calls=[_openai_call(name, args)])
+            detail = outcome.metadata
+            if not outcome.is_blocked:
                 results[name] = "ALLOW"
-            elif ctx["tool_authorization_status"] == "error":
+            elif detail["tool_authorization_status"] == "error":
                 results[name] = "ERROR"
-            elif ctx["tool_authorization_verdict"] == "human_review":
+            elif detail["tool_authorization_verdict"] == "human_review":
                 results[name] = "REVIEW"
             else:
                 results[name] = "BLOCK"

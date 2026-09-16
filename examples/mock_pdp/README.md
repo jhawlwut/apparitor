@@ -28,9 +28,13 @@ Then point the scanner at it (local dev → `allow_insecure_pdp=True` since it's
 ```python
 from apparitor import AuthZENScanner, ScannerConfig
 
-scanner = AuthZENScanner(config=ScannerConfig(
-    pdp_url="http://127.0.0.1:8080", allow_insecure_pdp=True, agent_id="demo-agent",
-))
+scanner = AuthZENScanner(
+    config=ScannerConfig(
+        pdp_url="http://127.0.0.1:8080",
+        allow_insecure_pdp=True,
+        agent_id="demo-agent",
+    )
+)
 ```
 
 This is not a real authorization engine. It exists to exercise the scanner end-to-end
