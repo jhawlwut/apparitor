@@ -39,7 +39,7 @@ body:
         - OpenFGA
         - Cedar (local gateway)
         - Amazon Verified Permissions (AVP)
-        - OPA (kanywst/opa-authzen)
+        - OPA (kanywst/opa-authzen-plugin)
         - Cerbos
         - Topaz
         - Other AuthZEN PDP
