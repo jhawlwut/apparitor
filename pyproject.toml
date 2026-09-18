@@ -58,7 +58,7 @@ llamafirewall = ["llamafirewall>=0.0.1,<2"]
 # Apache-2.0 Cedar engine (Rust); its version tracks the Cedar major.minor it embeds. Optional
 # so the core stays standalone — importing `apparitor.cedar` without it raises
 # MissingDependencyError. Bump deliberately in lockstep with the Cedar engine.
-cedar = ["cedarpy>=4.8,<4.9"]
+cedar = ["cedarpy>=4.8,<4.13"]
 # NeMo Guardrails (NVIDIA) rail adapter (apparitor.nemo). The second agentic-firewall
 # integration alongside the LlamaFirewall scanner. Optional so the core stays standalone —
 # importing `apparitor.nemo` without it raises MissingDependencyError. NeMo is pre-1.0; the
@@ -99,7 +99,7 @@ integration = ["testcontainers>=4"]
 # CycloneDX SBOM generator (see scripts/generate_sbom.sh). Pinned here — not in the shell
 # script — so Dependabot's pip ecosystem keeps it current, matching the repo's pinned-and-
 # maintained posture. Build-only tooling, like `build`/`twine`; never a runtime dependency.
-sbom = ["cyclonedx-bom==7.3.1"]
+sbom = ["cyclonedx-bom==7.4.0"]
 
 [project.urls]
 Homepage = "https://github.com/jhawlwut/apparitor"
